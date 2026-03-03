@@ -16,12 +16,18 @@ A PBS-focused (for now) library inventory + compatibility sweep tool.
   - Optional node lists (incompatible/missing/errors by kind)
 
 ## Install (no pip)
-Place `lib_sweep.py` and the `lib_sweep/` directory together on a shared path visible to login/compute nodes.
+Place this project directory on a shared path visible to login/compute nodes and run `lib_sweep.py` from that directory.
 
 Example:
 ```
-/shared/tools/lib_sweep.py
-/shared/tools/lib_sweep/
+/shared/tools/lib_locator/
+  lib_sweep.py
+  cli.py
+  probe.py
+  pbs.py
+  sshfanout.py
+  baseline.py
+  report.py
 ```
 
 ## Example runs
@@ -61,3 +67,10 @@ python3 /shared/tools/lib_sweep.py \
   - `UserKnownHostsFile=~/.cache/lib_sweep/known_hosts`
 - If your OpenSSH doesn't support `accept-new`, run with:
   - `--ssh-hostkey no`
+
+## Tests
+Run the lightweight unit tests:
+
+```
+python3 -m unittest discover -s tests -v
+```

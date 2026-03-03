@@ -1,6 +1,6 @@
 import os
 from collections import Counter, defaultdict
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 def sanitize_name(s: str) -> str:
     import re
@@ -13,8 +13,6 @@ def sample(nodes: List[str], limit: int = 25) -> str:
     return ", ".join(nodes[:limit]) + f", ... (+{len(nodes)-limit} more)"
 
 def write_pbs_skipped(path: str, skipped: List[Tuple[str,str,str,str,str]]) -> None:
-    if not skipped:
-        return
     with open(path, "w", encoding="utf-8") as f:
         f.write("node\treason\tstate\tnode_class\tpbs_nodetype\n")
         seen = set()
@@ -71,6 +69,7 @@ def build_report(
     libs: List[str],
     login_rows: List[Dict],
     compute_rows: List[Dict],
+    baselines: Dict[str, Set[int]],
     node_list_files: Dict[str, Dict[str,str]],
 ) -> str:
     lines = []
@@ -89,7 +88,7 @@ def build_report(
         c_ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")=="ok"]
         c_err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")!="ok"]
 
-        baseline = c_ok[0].get("baseline_majors","") if c_ok else ""
+        baseline = ",".join(str(m) for m in sorted(baselines.get(lib, set())))
         lines.append(f"Baseline majors required: {baseline if baseline else '(none)'}")
 
         if l_ok:

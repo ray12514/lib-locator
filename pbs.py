@@ -1,5 +1,5 @@
 from typing import Dict, List, Set, Tuple
-from .sshfanout import run, short_hostname
+from sshfanout import run, short_hostname
 
 def parse_pbsnodes_a(output: str) -> Dict[str, Dict[str, str]]:
     inv: Dict[str, Dict[str, str]] = {}
@@ -35,7 +35,10 @@ def classify_node(host: str, nodetype: str) -> str:
     return toks[0] if toks else "compute"
 
 def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
-    p = run(["pbsnodes", "-a"], timeout=120)
+    try:
+        p = run(["pbsnodes", "-a"], timeout=120)
+    except FileNotFoundError:
+        return [], [], {}
     if p.returncode != 0:
         return [], [], {}
     inv = parse_pbsnodes_a(p.stdout)
@@ -59,7 +62,7 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
         compute_flag = meta.get("resources_available.compute", "").strip()
 
         if compute_flag_only:
-            if compute_flag == "1" or nclass == "transfer":
+            if compute_flag == "1":
                 selected.append(n)
             else:
                 skipped.append((n, "non_compute", st, nclass, nodetype))

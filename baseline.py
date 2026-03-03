@@ -1,6 +1,6 @@
 from collections import Counter
 from typing import Dict, List, Optional, Set
-from .probe import pinned_major_from_query
+from probe import pinned_major_from_query
 
 def majors_set_from_row(row: Dict) -> Set[int]:
     s = (row.get("majors") or "").strip()

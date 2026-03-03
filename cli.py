@@ -6,11 +6,11 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, List, Set
 
-from .sshfanout import default_ssh_config, ssh_with_retries, short_hostname
-from .pbs import pbs_inventory, select_compute_nodes, classify_node
-from .probe import probe_node
-from .baseline import compute_baseline_majors
-from .report import write_pbs_skipped, write_node_lists, build_report
+from sshfanout import default_ssh_config, ssh_with_retries, short_hostname
+from pbs import pbs_inventory, select_compute_nodes, classify_node
+from probe import probe_node
+from baseline import compute_baseline_majors
+from report import write_pbs_skipped, write_node_lists, build_report
 
 def write_csv(path: str, fieldnames: List[str], rows: List[Dict]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -43,8 +43,8 @@ def main():
     ap.add_argument("--login-max", type=int, default=50)
     ap.add_argument("--login-stop-after-gap", type=int, default=6)
 
-    ap.add_argument("--pbs-online-only", action="store_true", default=True)
-    ap.add_argument("--pbs-compute-flag-only", action="store_true", default=True)
+    ap.add_argument("--pbs-online-only", action=argparse.BooleanOptionalAction, default=True)
+    ap.add_argument("--pbs-compute-flag-only", action=argparse.BooleanOptionalAction, default=True)
 
     ap.add_argument("--baseline-from", choices=["login-consensus","login-union","login-intersection","none"], default="login-consensus")
     ap.add_argument("--baseline-major", type=int, default=None)
@@ -189,14 +189,32 @@ def main():
     error_records = []
 
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = []
+        futs = {}
         for n in login_nodes:
-            futs.append(ex.submit(sweep_node, n, "login"))
+            fut = ex.submit(sweep_node, n, "login")
+            futs[fut] = (short_hostname(n), "login")
         for n in compute_nodes:
-            futs.append(ex.submit(sweep_node, n, "compute"))
+            fut = ex.submit(sweep_node, n, "compute")
+            futs[fut] = (short_hostname(n), "compute")
 
         for fut in as_completed(futs):
-            for r in fut.result():
+            node_name, role = futs[fut]
+            try:
+                rows = fut.result()
+            except Exception as exn:
+                for lib in args.lib:
+                    error_records.append({
+                        "role": role,
+                        "node": node_name,
+                        "lib_query": lib,
+                        "status": "internal_error",
+                        "ssh_rc": "-1",
+                        "ssh_error_kind": "internal_error",
+                        "ssh_error_detail": str(exn)[:240],
+                    })
+                continue
+
+            for r in rows:
                 if r.get("status") == "ssh_error":
                     error_records.append(r)
                 else:
@@ -288,6 +306,7 @@ def main():
 
     # attach errors
     for e in error_records:
+        role = e.get("role", "compute")
         node = short_hostname(e.get("node",""))
         libq = e.get("lib_query","")
         meta = pbs_inv.get(node, {})
@@ -297,7 +316,7 @@ def main():
         node_class = classify_node(node, pbs_nodetype)
 
         row = {
-            "role":"compute","node":node,"node_class":node_class,
+            "role":role,"node":node,"node_class":node_class,
             "pbs_state":pbs_state,"pbs_nodetype":pbs_nodetype,"pbs_compute_flag":pbs_compute_flag,
             "lib_query":libq,
             "present":"",
@@ -316,7 +335,11 @@ def main():
         if args.verbose_csv:
             row["versions"]=""
             row["variants_count"]=""
-        compute_rows.append(row)
+        if role == "login":
+            row["compatibility"] = "n/a"
+            login_rows.append(row)
+        else:
+            compute_rows.append(row)
 
     # output files
     login_csv = f"{out_prefix}_login.csv"
@@ -357,6 +380,7 @@ def main():
         libs=args.lib,
         login_rows=login_rows,
         compute_rows=compute_rows,
+        baselines=baselines,
         node_list_files=node_list_files,
     )
     with open(report_txt, "w", encoding="utf-8") as f:

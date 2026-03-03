@@ -1,6 +1,5 @@
 import os
 import re
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple
 
 DEFAULT_DIR_GLOBS = ["/lib*", "/usr/lib*", "/usr/local/lib*", "/opt/*/lib*"]
@@ -78,22 +77,29 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
                         found.add(f)
         return sorted(found)
 
+    soname_cache: Dict[str, str] = {}
+
     def soname_of(path: str) -> str:
+        if path in soname_cache:
+            return soname_cache[path]
         rc, out, _ = safe_run(["readelf", "-d", path])
         if rc == 0 and out:
             for line in out.splitlines():
                 if "SONAME" in line:
                     m = re.search(r"\[(.*?)\]", line)
                     if m:
-                        return m.group(1)
+                        soname_cache[path] = m.group(1)
+                        return soname_cache[path]
         rc, out, _ = safe_run(["objdump", "-p", path])
         if rc == 0 and out:
             for line in out.splitlines():
                 if line.strip().startswith("SONAME"):
                     parts = line.split()
                     if len(parts) >= 2:
-                        return parts[1]
-        return ""
+                        soname_cache[path] = parts[1]
+                        return soname_cache[path]
+        soname_cache[path] = ""
+        return soname_cache[path]
 
     candidates = []
     seen = set()
