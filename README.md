@@ -2,6 +2,8 @@
 
 A PBS-focused (for now) library inventory + compatibility sweep tool.
 
+Now supports PBS and Slurm scheduler inventory.
+
 ## What it does
 - Sweeps login nodes and/or compute nodes
 - Finds dynamic library variants for a query like:
@@ -61,12 +63,33 @@ python3 /shared/tools/lib_sweep.py \
   --out-prefix jpeg_inventory
 ```
 
+### Slurm compute sweep
+```
+python3 /shared/tools/lib_sweep.py \
+  --scheduler slurm \
+  --lib libjpeg \
+  --scope compute \
+  --workers 32 \
+  --out-prefix jpeg_slurm
+```
+
+### Show usage examples
+```
+python3 /shared/tools/lib_sweep.py --examples --lib libjpeg
+```
+
 ## Notes
 - Host key prompts are avoided by default using:
   - `StrictHostKeyChecking=accept-new`
   - `UserKnownHostsFile=~/.cache/lib_sweep/known_hosts`
 - If your OpenSSH doesn't support `accept-new`, run with:
   - `--ssh-hostkey no`
+- Use `--scheduler auto` (default) to detect Slurm/PBS automatically.
+
+## Exit codes
+- `0`: no compute errors, no incompatible/missing nodes
+- `1`: incompatibilities and/or missing libraries found
+- `2`: one or more probe/SSH/internal errors
 
 ## Tests
 Run the lightweight unit tests:

@@ -1,1 +1,1 @@
-__all__ = ["cli", "pbs", "probe", "sshfanout", "baseline", "report"]
+__all__ = ["cli", "pbs", "slurm", "probe", "sshfanout", "baseline", "report"]

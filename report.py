@@ -59,13 +59,14 @@ def write_node_lists(out_prefix: str, lib: str, compute_rows: List[Dict]) -> Dic
 def build_report(
     ts: str,
     scope: str,
+    scheduler: str,
     baseline_from: str,
     baseline_major: str,
     workers: int,
     retries: int,
     login_nodes: int,
     compute_nodes: int,
-    pbs_skipped_count: int,
+    scheduler_skipped_count: int,
     libs: List[str],
     login_rows: List[Dict],
     compute_rows: List[Dict],
@@ -75,11 +76,12 @@ def build_report(
     lines = []
     lines.append(f"Library sweep report: {ts}")
     lines.append(f"Scope: {scope}")
+    lines.append(f"Scheduler: {scheduler}")
     lines.append(f"Workers: {workers}   Retries: {retries}")
     lines.append(f"Baseline-from: {baseline_from}")
     lines.append(f"Baseline-major override: {baseline_major}")
     lines.append(f"Login nodes: {login_nodes}   Compute nodes selected: {compute_nodes}")
-    lines.append(f"PBS skipped (down/offline/non-compute): {pbs_skipped_count}")
+    lines.append(f"Scheduler skipped (down/offline/non-compute): {scheduler_skipped_count}")
     lines.append("")
 
     for lib in libs:
