@@ -15,7 +15,7 @@ class TestProbeHelpers(unittest.TestCase):
         )
         self.assertEqual(
             normalize_root_and_prefix("libjpeg.so.62"),
-            ("libjpeg", "libjpeg.so.62", 62),
+            ("libjpeg", "libjpeg.so", 62),
         )
 
     def test_pinned_major_from_query(self) -> None:

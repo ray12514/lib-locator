@@ -30,10 +30,10 @@ Then run the real scan:
 - `--lib libname` (for example `libjpeg`) inventories available SONAME majors.
 - `--lib libname.so.62` pins required major `62`.
 - For compute nodes:
+  - `consistent`: node contains all required SONAME majors
+  - `inconsistent`: library present but missing one or more required SONAME majors
   - `missing`: library not present
-  - `compatible`: node contains all required baseline majors
-  - `incompatible`: library present but missing one or more baseline majors
-  - `n/a`: no baseline requirement (for example `--baseline-from none`)
+  - `unreachable`: node probe failed (SSH/probe error), not counted as missing
 
 Baseline priority (highest first):
 
@@ -137,8 +137,8 @@ Output and diagnostics:
 
 - `--out-prefix`: output filename prefix
 - `--dry-run`: show plan and example probe command; no remote probe execution
-- `--write-node-lists`: write incompatible/missing/error node list files per lib
-- `--verbose-csv`: include extra columns (`versions`, `variants_count`)
+- `--write-node-lists`: write inconsistent/missing/error node list files per lib
+- `--detail {concise,full}`: default concise output, full adds scheduler/debug fields
 - `--write-json-summary`: write compact JSON summary report
 - `--examples`: print curated examples and exit
 
@@ -152,7 +152,7 @@ Internal:
 - Login probe results and baseline derivation context.
 
 `<prefix>_<timestamp>_compute.csv`
-- Compute compatibility results, scheduler metadata, and SSH status.
+- Compute consistency results and probe status (`consistent`, `inconsistent`, `missing`, `unreachable`).
 
 `<prefix>_<timestamp>_report.txt`
 - Human-readable run summary and per-library rollup.
@@ -162,16 +162,16 @@ Internal:
 
 Optional outputs:
 
-- `*_compute_<lib>_incompatible.txt`
+- `*_compute_<lib>_inconsistent.txt`
 - `*_compute_<lib>_missing.txt`
 - `*_compute_<lib>_errors_<kind>.txt`
 - `*_summary.json` (if `--write-json-summary`)
 
 ## Exit codes (automation friendly)
 
-- `0`: no compute errors, no incompatible/missing nodes
-- `1`: incompatibilities and/or missing libraries found
-- `2`: probe/SSH/internal errors found
+- `0`: no unreachable nodes, no inconsistent/missing nodes
+- `1`: one or more inconsistent and/or missing nodes found
+- `2`: one or more unreachable (SSH/probe/internal) nodes found
 
 ## Troubleshooting
 

@@ -30,13 +30,13 @@ def write_node_lists(out_prefix: str, lib: str, compute_rows: List[Dict]) -> Dic
     ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")=="ok"]
     err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")!="ok"]
 
-    incompatible = sorted({r["node"] for r in ok if r.get("compatibility")=="incompatible"})
-    missing = sorted({r["node"] for r in ok if r.get("compatibility")=="missing"})
+    inconsistent = sorted({r["node"] for r in ok if r.get("result")=="inconsistent"})
+    missing = sorted({r["node"] for r in ok if r.get("result")=="missing"})
 
-    fn = f"{out_prefix}_compute_{tag}_incompatible.txt"
+    fn = f"{out_prefix}_compute_{tag}_inconsistent.txt"
     with open(fn, "w", encoding="utf-8") as f:
-        f.write("\n".join(incompatible) + ("\n" if incompatible else ""))
-    files["incompatible"] = fn
+        f.write("\n".join(inconsistent) + ("\n" if inconsistent else ""))
+    files["inconsistent"] = fn
 
     fn = f"{out_prefix}_compute_{tag}_missing.txt"
     with open(fn, "w", encoding="utf-8") as f:
@@ -45,7 +45,7 @@ def write_node_lists(out_prefix: str, lib: str, compute_rows: List[Dict]) -> Dic
 
     by_kind = defaultdict(list)
     for r in err:
-        by_kind[r.get("ssh_error_kind","ssh_error")].append(r["node"])
+        by_kind[r.get("error_kind","ssh_error")].append(r["node"])
 
     for kind, nodes in by_kind.items():
         fn = f"{out_prefix}_compute_{tag}_errors_{sanitize_name(kind)}.txt"
@@ -91,7 +91,7 @@ def build_report(
         c_err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")!="ok"]
 
         baseline = ",".join(str(m) for m in sorted(baselines.get(lib, set())))
-        lines.append(f"Baseline majors required: {baseline if baseline else '(none)'}")
+        lines.append(f"Required SONAME major(s): {baseline if baseline else '(none)'}")
 
         if l_ok:
             tgt = Counter(r.get("primary_target","") for r in l_ok if r.get("primary_target"))
@@ -105,25 +105,25 @@ def build_report(
 
         lines.append("")
 
-        present = [r for r in c_ok if r.get("present")=="True"]
-        compat = [r for r in c_ok if r.get("compatibility")=="compatible"]
-        incompat = [r for r in c_ok if r.get("compatibility")=="incompatible"]
-        missing = [r for r in c_ok if r.get("compatibility")=="missing"]
+        consistent = [r for r in c_ok if r.get("result")=="consistent"]
+        inconsistent = [r for r in c_ok if r.get("result")=="inconsistent"]
+        missing = [r for r in c_ok if r.get("result")=="missing"]
 
         lines.append(f"Compute OK: {len(c_ok)}   Compute errors: {len(c_err)}")
-        lines.append(f"  present: {len(present)}   compatible: {len(compat)}   incompatible: {len(incompat)}   missing: {len(missing)}")
+        lines.append(
+            f"  consistent: {len(consistent)}   inconsistent: {len(inconsistent)}   "
+            f"missing: {len(missing)}   unreachable: {len(c_err)}"
+        )
 
-        if incompat:
-            by_class = Counter(r.get("node_class","") for r in incompat)
-            by_majors = Counter(r.get("majors","") for r in incompat)
-            lines.append("  Incompatible by node_class: " + ", ".join(f"{k}:{v}" for k,v in by_class.most_common()))
-            lines.append("  Top incompatible majors_seen:")
+        if inconsistent:
+            by_majors = Counter(r.get("found_majors","") for r in inconsistent)
+            lines.append("  Top inconsistent found_majors:")
             for k,v in by_majors.most_common(6):
                 lines.append(f"    {v:>4} : {k}")
 
         if c_err:
-            by_kind = Counter(r.get("ssh_error_kind","ssh_error") for r in c_err)
-            lines.append("  Errors by ssh_error_kind: " + ", ".join(f"{k}:{v}" for k,v in by_kind.most_common()))
+            by_kind = Counter(r.get("error_kind","ssh_error") for r in c_err)
+            lines.append("  Errors by error_kind: " + ", ".join(f"{k}:{v}" for k,v in by_kind.most_common()))
             lines.append(f"  Error sample: {sample([r['node'] for r in c_err])}")
 
         fdict = node_list_files.get(lib, {})

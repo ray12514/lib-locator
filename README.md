@@ -15,7 +15,7 @@ Now supports PBS and Slurm scheduler inventory.
   - `*_compute.csv`
   - `*_report.txt`
   - `*_<scheduler>_skipped.txt` (down/offline/non-compute)
-  - Optional node lists (incompatible/missing/errors by kind)
+  - Optional node lists (inconsistent/missing/errors by kind)
 
 For full documentation, see `USAGE.md`.
 
@@ -110,8 +110,8 @@ Example:
 - Use `--scheduler auto` (default) to detect Slurm/PBS automatically.
 
 ## Exit codes
-- `0`: no compute errors, no incompatible/missing nodes
-- `1`: incompatibilities and/or missing libraries found
+- `0`: no unreachable nodes, no inconsistent/missing nodes
+- `1`: one or more inconsistent and/or missing nodes found
 - `2`: one or more probe/SSH/internal errors
 
 ## Tests

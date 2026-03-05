@@ -14,7 +14,7 @@ def normalize_root_and_prefix(lib_query: str) -> Tuple[str, str, Optional[int]]:
         m = re.match(r"(\d+)", right)
         if m:
             pinned_major = int(m.group(1))
-            prefix = f"{left}.so.{m.group(1)}"
+            prefix = f"{left}.so"
         else:
             prefix = f"{left}.so"
         return left, prefix, pinned_major

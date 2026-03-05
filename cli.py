@@ -105,7 +105,12 @@ def main():
     ap.add_argument("--out-prefix", default="lib_sweep")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--write-node-lists", action="store_true")
-    ap.add_argument("--verbose-csv", action="store_true")
+    ap.add_argument(
+        "--detail",
+        choices=["concise", "full"],
+        default="concise",
+        help="CSV/report detail level (default: concise)",
+    )
     ap.add_argument("--write-json-summary", action="store_true", help="Write JSON summary report")
 
     ap.add_argument("--probe", action="store_true")
@@ -297,19 +302,18 @@ def main():
         node = short_hostname(r.get("node",""))
         libq = r.get("query","")
         row = {
-            "role":"login","node":node,"node_class":"login",
-            "scheduler":"local","scheduler_partition":"",
-            "pbs_state":"","pbs_nodetype":"","pbs_compute_flag":"",
-            "lib_query":libq,
-            "present":str(bool(r.get("present"))),
-            "compatibility":"n/a",
-            "baseline_majors":"",
-            "missing_baseline_majors":"",
+            "node": node,
+            "lib_query": libq,
+            "result": "observed",
+            "required_majors": "",
+            "found_majors": ",".join(str(m) for m in (r.get("majors") or [])),
+            "missing_required_majors": "",
             "primary_major":str(r.get("primary_major","") if r.get("primary_major") is not None else ""),
             "primary_version":str(r.get("primary_version","") or ""),
             "primary_target":str(r.get("primary_target","") or ""),
-            "majors":",".join(str(m) for m in (r.get("majors") or [])),
-            "status":"ok","ssh_rc":"0","ssh_error_kind":"ok","ssh_error_detail":""
+            "status":"ok",
+            "error_kind":"",
+            "error_detail":"",
         }
         login_rows.append(row)
         login_ok_by_lib[libq].append(row)
@@ -343,34 +347,38 @@ def main():
         missing = sorted(baseline - set(int(m) for m in majors_list if isinstance(m,int)))
 
         if not present:
-            compatibility = "missing"
+            result = "missing"
             missing_csv = baseline_csv
-        elif not baseline:
-            compatibility = "n/a"
-            missing_csv = ""
         elif not missing:
-            compatibility = "compatible"
+            result = "consistent"
             missing_csv = ""
         else:
-            compatibility = "incompatible"
+            result = "inconsistent"
             missing_csv = ",".join(str(m) for m in missing)
 
         row = {
-            "role":"compute","node":node,"node_class":node_class,
-            "scheduler":active_scheduler,"scheduler_partition":scheduler_partition,
-            "pbs_state":pbs_state,"pbs_nodetype":pbs_nodetype,"pbs_compute_flag":pbs_compute_flag,
+            "node": node,
             "lib_query":libq,
-            "present":str(present),
-            "compatibility":compatibility,
-            "baseline_majors":baseline_csv,
-            "missing_baseline_majors":missing_csv,
+            "result": result,
+            "required_majors": baseline_csv,
+            "found_majors": majors_csv,
+            "missing_required_majors": missing_csv,
             "primary_major":str(r.get("primary_major","") if r.get("primary_major") is not None else ""),
             "primary_version":str(r.get("primary_version","") or ""),
             "primary_target":str(r.get("primary_target","") or ""),
-            "majors":majors_csv,
-            "status":"ok","ssh_rc":"0","ssh_error_kind":"ok","ssh_error_detail":""
+            "status":"ok",
+            "error_kind":"",
+            "error_detail":"",
         }
-        if args.verbose_csv:
+        if args.detail == "full":
+            row.update({
+                "node_class": node_class,
+                "scheduler": active_scheduler,
+                "scheduler_partition": scheduler_partition,
+                "pbs_state": pbs_state,
+                "pbs_nodetype": pbs_nodetype,
+                "pbs_compute_flag": pbs_compute_flag,
+            })
             row["versions"] = ",".join(str(v) for v in (r.get("versions") or []))
             row["variants_count"] = str(r.get("variants_count",""))
         compute_rows.append(row)
@@ -388,29 +396,32 @@ def main():
         node_class = slurm_classify_node(node, pbs_nodetype) if active_scheduler == "slurm" else pbs_classify_node(node, pbs_nodetype)
 
         row = {
-            "role":role,"node":node,"node_class":node_class,
-            "scheduler":active_scheduler if role == "compute" else "local",
-            "scheduler_partition":scheduler_partition,
-            "pbs_state":pbs_state,"pbs_nodetype":pbs_nodetype,"pbs_compute_flag":pbs_compute_flag,
+            "node": node,
             "lib_query":libq,
-            "present":"",
-            "compatibility":"",
-            "baseline_majors":"",
-            "missing_baseline_majors":"",
+            "result": "unreachable",
+            "required_majors": "",
+            "found_majors": "",
+            "missing_required_majors": "",
             "primary_major":"",
             "primary_version":"",
             "primary_target":"",
-            "majors":"",
             "status":"ssh_error",
-            "ssh_rc":e.get("ssh_rc",""),
-            "ssh_error_kind":e.get("ssh_error_kind","ssh_error"),
-            "ssh_error_detail":e.get("ssh_error_detail",""),
+            "error_kind":e.get("ssh_error_kind","ssh_error"),
+            "error_detail":e.get("ssh_error_detail",""),
         }
-        if args.verbose_csv:
+        if args.detail == "full":
+            row.update({
+                "node_class": node_class,
+                "scheduler": active_scheduler if role == "compute" else "local",
+                "scheduler_partition": scheduler_partition,
+                "pbs_state": pbs_state,
+                "pbs_nodetype": pbs_nodetype,
+                "pbs_compute_flag": pbs_compute_flag,
+            })
             row["versions"]=""
             row["variants_count"]=""
         if role == "login":
-            row["compatibility"] = "n/a"
+            row["result"] = "unreachable"
             login_rows.append(row)
         else:
             compute_rows.append(row)
@@ -421,18 +432,36 @@ def main():
     report_txt = f"{out_prefix}_report.txt"
     skipped_txt = f"{out_prefix}_{active_scheduler}_skipped.txt"
 
-    base_fields = [
-        "role","node","node_class","scheduler","scheduler_partition","pbs_state","pbs_nodetype","pbs_compute_flag",
-        "lib_query","present","compatibility","baseline_majors","missing_baseline_majors",
-        "primary_major","primary_version","primary_target","majors",
-        "status","ssh_rc","ssh_error_kind","ssh_error_detail",
+    concise_fields = [
+        "node",
+        "lib_query",
+        "result",
+        "required_majors",
+        "found_majors",
+        "missing_required_majors",
+        "primary_major",
+        "primary_version",
+        "status",
+        "error_kind",
+        "error_detail",
     ]
-    verbose_fields = base_fields + ["versions","variants_count"]
+    full_fields = concise_fields[:]
+    full_fields[1:1] = [
+        "node_class",
+        "scheduler",
+        "scheduler_partition",
+        "pbs_state",
+        "pbs_nodetype",
+        "pbs_compute_flag",
+    ]
+    full_fields.insert(full_fields.index("status"), "primary_target")
+    full_fields.extend(["versions", "variants_count"])
+    selected_fields = full_fields if args.detail == "full" else concise_fields
 
     if scope in ("login","all"):
-        write_csv(login_csv, base_fields, login_rows)
+        write_csv(login_csv, selected_fields, login_rows)
     if scope in ("compute","all"):
-        write_csv(compute_csv, (verbose_fields if args.verbose_csv else base_fields), compute_rows)
+        write_csv(compute_csv, selected_fields, compute_rows)
 
     write_pbs_skipped(skipped_txt, scheduler_skipped)
 
@@ -471,9 +500,10 @@ def main():
             by_lib[lib] = {
                 "compute_ok": len(c_ok),
                 "compute_errors": len(c_err),
-                "compatible": sum(1 for r in c_ok if r.get("compatibility") == "compatible"),
-                "incompatible": sum(1 for r in c_ok if r.get("compatibility") == "incompatible"),
-                "missing": sum(1 for r in c_ok if r.get("compatibility") == "missing"),
+                "consistent": sum(1 for r in c_ok if r.get("result") == "consistent"),
+                "inconsistent": sum(1 for r in c_ok if r.get("result") == "inconsistent"),
+                "missing": sum(1 for r in c_ok if r.get("result") == "missing"),
+                "unreachable": len(c_err),
             }
         summary = {
             "ts": ts,
@@ -496,10 +526,10 @@ def main():
     if args.write_json_summary:
         print(f"Wrote JSON summary: {summary_json}")
 
-    total_incompatible = sum(1 for r in compute_rows if r.get("compatibility") == "incompatible")
-    total_missing = sum(1 for r in compute_rows if r.get("compatibility") == "missing")
+    total_inconsistent = sum(1 for r in compute_rows if r.get("result") == "inconsistent")
+    total_missing = sum(1 for r in compute_rows if r.get("result") == "missing")
     total_errors = sum(1 for r in compute_rows if r.get("status") != "ok")
     if total_errors > 0:
         sys.exit(2)
-    if (total_incompatible + total_missing) > 0:
+    if (total_inconsistent + total_missing) > 0:
         sys.exit(1)
