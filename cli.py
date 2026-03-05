@@ -305,13 +305,13 @@ def main():
             "node": node,
             "lib_query": libq,
             "result": "observed",
+            "issue_detail": "",
             "required_majors": "",
             "found_majors": ",".join(str(m) for m in (r.get("majors") or [])),
             "missing_required_majors": "",
             "primary_major":str(r.get("primary_major","") if r.get("primary_major") is not None else ""),
             "primary_version":str(r.get("primary_version","") or ""),
             "primary_target":str(r.get("primary_target","") or ""),
-            "status":"ok",
             "error_kind":"",
             "error_detail":"",
         }
@@ -349,24 +349,27 @@ def main():
         if not present:
             result = "missing"
             missing_csv = baseline_csv
+            issue_detail = f"required={baseline_csv or 'none'} found=none"
         elif not missing:
             result = "consistent"
             missing_csv = ""
+            issue_detail = ""
         else:
             result = "inconsistent"
             missing_csv = ",".join(str(m) for m in missing)
+            issue_detail = f"required={baseline_csv or 'none'} found={majors_csv or 'none'}"
 
         row = {
             "node": node,
             "lib_query":libq,
             "result": result,
+            "issue_detail": issue_detail,
             "required_majors": baseline_csv,
             "found_majors": majors_csv,
             "missing_required_majors": missing_csv,
             "primary_major":str(r.get("primary_major","") if r.get("primary_major") is not None else ""),
             "primary_version":str(r.get("primary_version","") or ""),
             "primary_target":str(r.get("primary_target","") or ""),
-            "status":"ok",
             "error_kind":"",
             "error_detail":"",
         }
@@ -399,13 +402,13 @@ def main():
             "node": node,
             "lib_query":libq,
             "result": "unreachable",
+            "issue_detail": e.get("ssh_error_kind", "ssh_error"),
             "required_majors": "",
             "found_majors": "",
             "missing_required_majors": "",
             "primary_major":"",
             "primary_version":"",
             "primary_target":"",
-            "status":"ssh_error",
             "error_kind":e.get("ssh_error_kind","ssh_error"),
             "error_detail":e.get("ssh_error_detail",""),
         }
@@ -436,26 +439,30 @@ def main():
         "node",
         "lib_query",
         "result",
-        "required_majors",
-        "found_majors",
-        "missing_required_majors",
-        "primary_major",
-        "primary_version",
-        "status",
-        "error_kind",
-        "error_detail",
+        "issue_detail",
     ]
-    full_fields = concise_fields[:]
-    full_fields[1:1] = [
+    full_fields = [
+        "node",
         "node_class",
         "scheduler",
         "scheduler_partition",
         "pbs_state",
         "pbs_nodetype",
         "pbs_compute_flag",
+        "lib_query",
+        "result",
+        "issue_detail",
+        "required_majors",
+        "found_majors",
+        "missing_required_majors",
+        "primary_major",
+        "primary_version",
+        "primary_target",
+        "error_kind",
+        "error_detail",
+        "versions",
+        "variants_count",
     ]
-    full_fields.insert(full_fields.index("status"), "primary_target")
-    full_fields.extend(["versions", "variants_count"])
     selected_fields = full_fields if args.detail == "full" else concise_fields
 
     if scope in ("login","all"):
@@ -495,8 +502,8 @@ def main():
         summary_json = f"{out_prefix}_summary.json"
         by_lib = {}
         for lib in args.lib:
-            c_ok = [r for r in compute_rows if r.get("lib_query") == lib and r.get("status") == "ok"]
-            c_err = [r for r in compute_rows if r.get("lib_query") == lib and r.get("status") != "ok"]
+            c_ok = [r for r in compute_rows if r.get("lib_query") == lib and r.get("result") != "unreachable"]
+            c_err = [r for r in compute_rows if r.get("lib_query") == lib and r.get("result") == "unreachable"]
             by_lib[lib] = {
                 "compute_ok": len(c_ok),
                 "compute_errors": len(c_err),
@@ -528,7 +535,7 @@ def main():
 
     total_inconsistent = sum(1 for r in compute_rows if r.get("result") == "inconsistent")
     total_missing = sum(1 for r in compute_rows if r.get("result") == "missing")
-    total_errors = sum(1 for r in compute_rows if r.get("status") != "ok")
+    total_errors = sum(1 for r in compute_rows if r.get("result") == "unreachable")
     if total_errors > 0:
         sys.exit(2)
     if (total_inconsistent + total_missing) > 0:

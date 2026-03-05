@@ -27,8 +27,8 @@ def write_node_lists(out_prefix: str, lib: str, compute_rows: List[Dict]) -> Dic
     tag = sanitize_name(lib)
     files = {}
 
-    ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")=="ok"]
-    err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")!="ok"]
+    ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("result")!="unreachable"]
+    err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("result")=="unreachable"]
 
     inconsistent = sorted({r["node"] for r in ok if r.get("result")=="inconsistent"})
     missing = sorted({r["node"] for r in ok if r.get("result")=="missing"})
@@ -86,9 +86,9 @@ def build_report(
 
     for lib in libs:
         lines.append(f"=== {lib} ===")
-        l_ok = [r for r in login_rows if r.get("lib_query")==lib and r.get("status")=="ok"]
-        c_ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")=="ok"]
-        c_err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("status")!="ok"]
+        l_ok = [r for r in login_rows if r.get("lib_query")==lib and r.get("result")=="observed"]
+        c_ok = [r for r in compute_rows if r.get("lib_query")==lib and r.get("result")!="unreachable"]
+        c_err = [r for r in compute_rows if r.get("lib_query")==lib and r.get("result")=="unreachable"]
 
         baseline = ",".join(str(m) for m in sorted(baselines.get(lib, set())))
         lines.append(f"Required SONAME major(s): {baseline if baseline else '(none)'}")

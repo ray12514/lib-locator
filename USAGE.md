@@ -152,7 +152,7 @@ Internal:
 - Login probe results and baseline derivation context.
 
 `<prefix>_<timestamp>_compute.csv`
-- Compute consistency results and probe status (`consistent`, `inconsistent`, `missing`, `unreachable`).
+- Compute consistency results with concise columns by default (`node`, `lib_query`, `result`, `issue_detail`).
 
 `<prefix>_<timestamp>_report.txt`
 - Human-readable run summary and per-library rollup.
@@ -181,7 +181,7 @@ Optional outputs:
 - SSH issues:
   - start with `--dry-run`
   - increase `--ssh-timeout` and `--retries`
-  - check `ssh_error_kind` and `ssh_error_detail` columns in compute CSV
+  - check `issue_detail` in concise mode or `error_kind`/`error_detail` in `--detail full`
 - Unexpected baseline behavior:
   - use `--baseline-major` for strict enforcement
   - or `--baseline-from none` for inventory-only runs
