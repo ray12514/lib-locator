@@ -117,7 +117,7 @@ def build_report(
 
         by_type = {}
         for r in c_ok + c_err:
-            nt = (r.get("node_type") or "standard").strip() or "standard"
+            nt = (r.get("node_type") or "compute").strip() or "compute"
             if nt not in by_type:
                 by_type[nt] = {"consistent": 0, "inconsistent": 0, "missing": 0, "unreachable": 0}
             res = r.get("result", "")

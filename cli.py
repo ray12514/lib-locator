@@ -68,9 +68,9 @@ def json_lines_only(stdout: str) -> List[str]:
 def normalize_node_type(raw: str) -> str:
     s = (raw or "").strip()
     if not s:
-        return "standard"
+        return "compute"
     first = s.split(",", 1)[0].strip().lower()
-    return first if first else "standard"
+    return first if first else "compute"
 
 def main():
     ap = argparse.ArgumentParser(

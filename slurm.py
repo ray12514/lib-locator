@@ -65,6 +65,8 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
         partition = partition_raw.strip().replace("*", "")
         nodetype = _nodetype_from_features(features_raw)
         node_class = classify_node(node, nodetype)
+        if not nodetype:
+            nodetype = node_class
         compute_flag = "0" if node_class == "transfer" else "1"
 
         inv[node] = {

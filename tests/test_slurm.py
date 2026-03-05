@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from slurm import classify_node, select_compute_nodes, state_is_online
+from slurm import classify_node, select_compute_nodes, slurm_inventory, state_is_online
 
 
 class TestSlurmStateAndClass(unittest.TestCase):
@@ -46,6 +48,17 @@ class TestSlurmSelection(unittest.TestCase):
         reasons = {(node, reason) for node, reason, *_ in skipped}
         self.assertIn(("dtn01", "non_compute"), reasons)
         self.assertIn(("node002", "offline_or_down"), reasons)
+
+    def test_inventory_fills_missing_nodetype_from_class(self) -> None:
+        raw = "\n".join([
+            "node001|idle|compute|(null)",
+            "dtn01|idle|transfer|(null)",
+        ])
+        with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+            _, _, inv = slurm_inventory()
+
+        self.assertEqual(inv["node001"]["resources_available.nodetype"], "compute")
+        self.assertEqual(inv["dtn01"]["resources_available.nodetype"], "transfer")
 
 
 if __name__ == "__main__":

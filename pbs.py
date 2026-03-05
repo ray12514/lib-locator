@@ -42,6 +42,10 @@ def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
     if p.returncode != 0:
         return [], [], {}
     inv = parse_pbsnodes_a(p.stdout)
+    for node, meta in inv.items():
+        raw_nodetype = meta.get("resources_available.nodetype", "")
+        if not (raw_nodetype or "").strip():
+            meta["resources_available.nodetype"] = classify_node(node, raw_nodetype)
     all_nodes = list(inv.keys())
     online = [n for n in all_nodes if state_is_online(inv.get(n, {}).get("state",""))]
     return all_nodes, online, inv

@@ -1,6 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from pbs import parse_pbsnodes_a, select_compute_nodes, state_is_online
+from pbs import parse_pbsnodes_a, pbs_inventory, select_compute_nodes, state_is_online
 
 
 class TestPBSParsing(unittest.TestCase):
@@ -68,6 +70,23 @@ class TestPBSSelection(unittest.TestCase):
         self.assertIn(("dtn01", "non_compute"), reasons)
         self.assertIn(("node003", "non_compute"), reasons)
         self.assertIn(("node002", "offline_or_down"), reasons)
+
+    def test_inventory_fills_missing_nodetype(self) -> None:
+        raw = """
+node001
+    state = free
+    resources_available.compute = 1
+
+dtn01
+    state = free
+    resources_available.compute = 0
+""".strip()
+
+        with patch("pbs.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+            _, _, inv = pbs_inventory()
+
+        self.assertEqual(inv["node001"]["resources_available.nodetype"], "compute")
+        self.assertEqual(inv["dtn01"]["resources_available.nodetype"], "transfer")
 
 
 if __name__ == "__main__":
