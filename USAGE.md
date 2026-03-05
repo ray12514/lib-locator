@@ -1,26 +1,28 @@
 # lib_sweep Usage Guide
 
-This guide covers all user-facing options and common workflows for `lib_sweep.py`.
+This guide covers all user-facing options and common workflows for `libsweep`.
 
 ## Quick start
 
-Run from the project directory (or use full path to `lib_sweep.py`):
+Run from the project directory (or use full path to `libsweep`):
 
 ```bash
-python3 lib_sweep.py --help
-python3 lib_sweep.py --examples
+./libsweep --help
+./libsweep --examples
 ```
+
+If you prefer, `python3 lib_sweep.py ...` is still supported.
 
 Typical first run:
 
 ```bash
-python3 lib_sweep.py --lib libjpeg --scope all --login-auto --dry-run
+./libsweep --lib libjpeg --scope all --login-auto --dry-run
 ```
 
 Then run the real scan:
 
 ```bash
-python3 lib_sweep.py --lib libjpeg --scope all --login-auto --workers 32 --out-prefix libjpeg_scan
+./libsweep --lib libjpeg --scope all --login-auto --workers 32 --out-prefix libjpeg_scan
 ```
 
 ## How compatibility works
@@ -54,7 +56,7 @@ For your environment, Slurm nodetype is read from Slurm node features and mapped
 Inventory only (no compatibility judgment):
 
 ```bash
-python3 lib_sweep.py \
+./libsweep \
   --lib libjpeg \
   --scope all \
   --login-auto \
@@ -66,31 +68,31 @@ python3 lib_sweep.py \
 Require a specific major from query:
 
 ```bash
-python3 lib_sweep.py --lib libjpeg.so.62 --scope all --login-auto --workers 32
+./libsweep --lib libjpeg.so.62 --scope all --login-auto --workers 32
 ```
 
 Force baseline major explicitly:
 
 ```bash
-python3 lib_sweep.py --lib libjpeg --scope all --login-auto --baseline-major 62
+./libsweep --lib libjpeg --scope all --login-auto --baseline-major 62
 ```
 
 Slurm compute-only sweep:
 
 ```bash
-python3 lib_sweep.py --scheduler slurm --lib libjpeg --scope compute --workers 32
+./libsweep --scheduler slurm --lib libjpeg --scope compute --workers 32
 ```
 
 PBS compute-only sweep:
 
 ```bash
-python3 lib_sweep.py --scheduler pbs --lib libjpeg --scope compute --workers 32
+./libsweep --scheduler pbs --lib libjpeg --scope compute --workers 32
 ```
 
 Multiple libraries in one run:
 
 ```bash
-python3 lib_sweep.py --lib libjpeg --lib libpng --lib libstdc++.so.6 --scope all --login-auto
+./libsweep --lib libjpeg --lib libpng --lib libstdc++.so.6 --scope all --login-auto
 ```
 
 ## Option reference

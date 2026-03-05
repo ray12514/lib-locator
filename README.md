@@ -20,7 +20,28 @@ Now supports PBS and Slurm scheduler inventory.
 For full documentation, see `USAGE.md`.
 
 ## Install (no pip)
-Place this project directory on a shared path visible to login/compute nodes and run `lib_sweep.py` from that directory.
+Place this project directory on a shared path visible to login/compute nodes.
+
+Use the included `libsweep` launcher from this directory:
+
+```bash
+./libsweep --help
+```
+
+Optional: add it to your PATH as a command.
+
+User-local install:
+
+```bash
+mkdir -p ~/.local/bin
+ln -sf /shared/tools/lib_locator/libsweep ~/.local/bin/libsweep
+```
+
+System-wide install:
+
+```bash
+sudo ln -sf /shared/tools/lib_locator/libsweep /usr/local/bin/libsweep
+```
 
 Example:
 ```
@@ -38,12 +59,12 @@ Example:
 
 ### Dry run (no SSH)
 ```
-python3 /shared/tools/lib_locator/lib_sweep.py --lib libjpeg --scope all --login-auto --baseline-major 62 --dry-run
+/shared/tools/lib_locator/libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --dry-run
 ```
 
 ### Sweep all (login + compute), require SONAME major 62
 ```
-python3 /shared/tools/lib_locator/lib_sweep.py \
+/shared/tools/lib_locator/libsweep \
   --lib libjpeg.so.62 \
   --scope all \
   --login-auto \
@@ -56,7 +77,7 @@ python3 /shared/tools/lib_locator/lib_sweep.py \
 
 ### Inventory only (no compatibility judgement)
 ```
-python3 /shared/tools/lib_locator/lib_sweep.py \
+/shared/tools/lib_locator/libsweep \
   --lib libjpeg \
   --scope all \
   --login-auto \
@@ -67,7 +88,7 @@ python3 /shared/tools/lib_locator/lib_sweep.py \
 
 ### Slurm compute sweep
 ```
-python3 /shared/tools/lib_locator/lib_sweep.py \
+/shared/tools/lib_locator/libsweep \
   --scheduler slurm \
   --lib libjpeg \
   --scope compute \
@@ -77,7 +98,7 @@ python3 /shared/tools/lib_locator/lib_sweep.py \
 
 ### Show usage examples
 ```
-python3 /shared/tools/lib_locator/lib_sweep.py --examples --lib libjpeg
+/shared/tools/lib_locator/libsweep --examples --lib libjpeg
 ```
 
 ## Notes

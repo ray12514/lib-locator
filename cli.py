@@ -18,19 +18,19 @@ from report import write_pbs_skipped, write_node_lists, build_report
 
 EXAMPLES = """Examples:
   Inventory only (no compatibility judgement):
-    python3 lib_sweep.py --lib libjpeg --scope all --login-auto --baseline-from none --workers 32
+    ./libsweep --lib libjpeg --scope all --login-auto --baseline-from none --workers 32
 
   Sweep all and require SONAME major 62:
-    python3 lib_sweep.py --lib libjpeg.so.62 --scope all --login-auto --baseline-from login-consensus --workers 32
+    ./libsweep --lib libjpeg.so.62 --scope all --login-auto --baseline-from login-consensus --workers 32
 
   Force baseline major 62:
-    python3 lib_sweep.py --lib libjpeg --scope all --login-auto --baseline-major 62 --workers 32
+    ./libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --workers 32
 
   Slurm inventory:
-    python3 lib_sweep.py --scheduler slurm --lib libjpeg --scope compute --workers 32
+    ./libsweep --scheduler slurm --lib libjpeg --scope compute --workers 32
 
   Print this examples menu:
-    python3 lib_sweep.py --examples
+    ./libsweep --examples
 """
 
 
