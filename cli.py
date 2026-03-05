@@ -54,7 +54,7 @@ def write_csv(path: str, fieldnames: List[str], rows: List[Dict]) -> None:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
         for row in sorted(rows, key=lambda x: (x.get("lib_query",""), x.get("node",""))):
-            w.writerow(row)
+            w.writerow({k: row.get(k, "") for k in fieldnames})
 
 def json_lines_only(stdout: str) -> List[str]:
     out = []
