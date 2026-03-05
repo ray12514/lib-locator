@@ -131,7 +131,8 @@ Execution and SSH:
 - `--retries`: retry count for transient SSH failures
 - `--ssh-hostkey {accept-new,no,yes}`
 - `--ssh-known-hosts`: override known_hosts path
-- `--ssh-control-master`: enable OpenSSH connection sharing
+- `--ssh-control-master` / `--no-ssh-control-master`: enable/disable OpenSSH connection sharing (default enabled)
+- `--remote-low-priority` / `--no-remote-low-priority`: run remote probes with `nice -n 19` (default enabled)
 
 Output and diagnostics:
 
@@ -152,7 +153,7 @@ Internal:
 - Login probe results and baseline derivation context.
 
 `<prefix>_<timestamp>_compute.csv`
-- Compute consistency results with concise columns by default (`node`, `lib_query`, `result`, `issue_detail`).
+- Compute consistency results with concise columns by default (`node`, `node_type`, `lib_query`, `result`, `issue_detail`).
 
 `<prefix>_<timestamp>_report.txt`
 - Human-readable run summary and per-library rollup.
@@ -182,6 +183,12 @@ Optional outputs:
   - start with `--dry-run`
   - increase `--ssh-timeout` and `--retries`
   - check `issue_detail` in concise mode or `error_kind`/`error_detail` in `--detail full`
+
+## Safety notes
+
+- Remote probing is read-only: it runs `ldconfig -p`, filesystem glob checks, and ELF metadata reads.
+- No scheduler/job control actions are performed on compute nodes.
+- By default, remote probes run with low CPU priority (`nice -n 19`) to minimize impact on running jobs.
 - Unexpected baseline behavior:
   - use `--baseline-major` for strict enforcement
   - or `--baseline-from none` for inventory-only runs

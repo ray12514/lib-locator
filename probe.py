@@ -73,8 +73,7 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
             for base in glob.glob(dglob):
                 pat = os.path.join(base.rstrip("/"), prefix + "*")
                 for f in glob.glob(pat):
-                    if os.path.exists(f):
-                        found.add(f)
+                    found.add(f)
         return sorted(found)
 
     soname_cache: Dict[str, str] = {}
@@ -118,8 +117,11 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
     primary_path = candidates[0] if candidates else ""
     primary_target = os.path.realpath(primary_path) if primary_path else ""
     primary_base = os.path.basename(primary_target) if primary_target else ""
-    primary_soname = soname_of(primary_target) if (primary_target and os.path.isfile(primary_target)) else ""
-    primary_major = major_from_text(primary_soname) or major_from_text(primary_base) or (major_from_text(os.path.basename(primary_path)) if primary_path else None)
+    primary_soname = ""
+    primary_major = major_from_text(primary_base) or (major_from_text(os.path.basename(primary_path)) if primary_path else None)
+    if primary_major is None and primary_target and os.path.isfile(primary_target):
+        primary_soname = soname_of(primary_target)
+        primary_major = major_from_text(primary_soname)
     primary_version = version_suffix(primary_base) if primary_base else ""
 
     for p in candidates:
@@ -128,8 +130,9 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
         v = version_suffix(tbase)
         if v:
             versions.add(v)
-        son = soname_of(tgt) if os.path.isfile(tgt) else ""
-        maj = major_from_text(son) or major_from_text(tbase) or major_from_text(os.path.basename(p))
+        maj = major_from_text(tbase) or major_from_text(os.path.basename(p))
+        if maj is None and os.path.isfile(tgt):
+            maj = major_from_text(soname_of(tgt))
         if maj is not None:
             majors.add(maj)
 

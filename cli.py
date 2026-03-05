@@ -64,6 +64,14 @@ def json_lines_only(stdout: str) -> List[str]:
             out.append(s)
     return out
 
+
+def normalize_node_type(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return "standard"
+    first = s.split(",", 1)[0].strip().lower()
+    return first if first else "standard"
+
 def main():
     ap = argparse.ArgumentParser(
         description="Cluster library inventory and compatibility sweep",
@@ -100,7 +108,18 @@ def main():
 
     ap.add_argument("--ssh-hostkey", choices=["accept-new","no","yes"], default="accept-new")
     ap.add_argument("--ssh-known-hosts", default=None)
-    ap.add_argument("--ssh-control-master", action="store_true")
+    ap.add_argument(
+        "--ssh-control-master",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable OpenSSH connection reuse (default: enabled)",
+    )
+    ap.add_argument(
+        "--remote-low-priority",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run remote probe with low CPU priority via nice (default: enabled)",
+    )
 
     ap.add_argument("--out-prefix", default="lib_sweep")
     ap.add_argument("--dry-run", action="store_true")
@@ -215,7 +234,10 @@ def main():
 
     # sweep fanout
     def sweep_node(node: str, role: str):
-        argv = [args.remote_python, os.path.realpath(__import__('sys').argv[0]), "--probe"]
+        argv = []
+        if args.remote_low_priority:
+            argv += ["nice", "-n", "19"]
+        argv += [args.remote_python, os.path.realpath(__import__('sys').argv[0]), "--probe"]
         for lib in args.lib:
             argv += ["--lib", lib]
         for d in args.dirs:
@@ -303,6 +325,7 @@ def main():
         libq = r.get("query","")
         row = {
             "node": node,
+            "node_type": "login",
             "lib_query": libq,
             "result": "observed",
             "issue_detail": "",
@@ -337,6 +360,7 @@ def main():
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
         node_class = slurm_classify_node(node, pbs_nodetype) if active_scheduler == "slurm" else pbs_classify_node(node, pbs_nodetype)
+        node_type = normalize_node_type(pbs_nodetype)
 
         majors_list = r.get("majors") or []
         majors_csv = ",".join(str(m) for m in majors_list)
@@ -361,6 +385,7 @@ def main():
 
         row = {
             "node": node,
+            "node_type": node_type,
             "lib_query":libq,
             "result": result,
             "issue_detail": issue_detail,
@@ -397,9 +422,11 @@ def main():
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
         node_class = slurm_classify_node(node, pbs_nodetype) if active_scheduler == "slurm" else pbs_classify_node(node, pbs_nodetype)
+        node_type = normalize_node_type(pbs_nodetype)
 
         row = {
             "node": node,
+            "node_type": node_type,
             "lib_query":libq,
             "result": "unreachable",
             "issue_detail": e.get("ssh_error_kind", "ssh_error"),
@@ -425,6 +452,7 @@ def main():
             row["variants_count"]=""
         if role == "login":
             row["result"] = "unreachable"
+            row["node_type"] = "login"
             login_rows.append(row)
         else:
             compute_rows.append(row)
@@ -437,12 +465,14 @@ def main():
 
     concise_fields = [
         "node",
+        "node_type",
         "lib_query",
         "result",
         "issue_detail",
     ]
     full_fields = [
         "node",
+        "node_type",
         "node_class",
         "scheduler",
         "scheduler_partition",

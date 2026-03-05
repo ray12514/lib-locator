@@ -115,6 +115,23 @@ def build_report(
             f"missing: {len(missing)}   unreachable: {len(c_err)}"
         )
 
+        by_type = {}
+        for r in c_ok + c_err:
+            nt = (r.get("node_type") or "standard").strip() or "standard"
+            if nt not in by_type:
+                by_type[nt] = {"consistent": 0, "inconsistent": 0, "missing": 0, "unreachable": 0}
+            res = r.get("result", "")
+            if res in by_type[nt]:
+                by_type[nt][res] += 1
+        if by_type:
+            lines.append("  By node_type:")
+            for nt in sorted(by_type.keys()):
+                c = by_type[nt]
+                lines.append(
+                    f"    {nt}: consistent={c['consistent']} inconsistent={c['inconsistent']} "
+                    f"missing={c['missing']} unreachable={c['unreachable']}"
+                )
+
         if inconsistent:
             by_majors = Counter(r.get("found_majors","") for r in inconsistent)
             lines.append("  Top inconsistent found_majors:")
