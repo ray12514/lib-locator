@@ -44,9 +44,7 @@ def classify_node(host: str, nodetype: str, clustertype: str = "", bigmem: str =
         return "visualization"
     if _is_true(bigmem) or ({"bigmem", "highmem", "hmem", "largemem"} & combined):
         return "bigmem"
-
-    toks = nodetype_tokens(nodetype)
-    return toks[0] if toks else "compute"
+    return "compute"
 
 def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
     try:

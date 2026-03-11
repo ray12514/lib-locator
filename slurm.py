@@ -48,15 +48,11 @@ def classify_node(host: str, nodetype: str, partition: str = "") -> str:
 
     if host_transfer or ({"transfer", "xfer", "dtn", "dnt", "datatransfer"} & (combined | host_toks)):
         return "transfer"
+    if {"visualization", "visual", "viz", "vis"} & combined:
+        return "visualization"
     if {"bigmem", "highmem", "hmem", "largemem"} & combined:
         return "bigmem"
-
-    nt = (nodetype or "").lower().strip()
-    if nt:
-        toks = _tokenize(nt)
-        if toks:
-            return toks[0]
-    return nt if nt else "compute"
+    return "compute"
 
 
 def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
@@ -141,7 +137,8 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
         meta = inv.get(n, {})
         st = meta.get("state", "")
         nodetype = meta.get("resources_available.nodetype", "")
-        nclass = classify_node(n, nodetype)
+        partition = meta.get("scheduler.partition", "")
+        nclass = classify_node(n, nodetype, partition)
         compute_flag = meta.get("resources_available.compute", "").strip()
 
         if compute_flag_only:
@@ -158,7 +155,8 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
             meta = inv.get(n, {})
             st = meta.get("state", "")
             nodetype = meta.get("resources_available.nodetype", "")
-            nclass = classify_node(n, nodetype)
+            partition = meta.get("scheduler.partition", "")
+            nclass = classify_node(n, nodetype, partition)
             skipped.append((n, "offline_or_down", st, nclass, nodetype))
 
     seen = set()

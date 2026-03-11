@@ -15,6 +15,7 @@ class TestSSHFanout(unittest.TestCase):
     def test_classify_remote_exec_error(self) -> None:
         self.assertEqual(classify_ssh_failure(1, "Traceback: boom"), "remote_exec_error")
         self.assertEqual(classify_ssh_failure(127, "bash: python3: command not found"), "remote_exec_error")
+        self.assertEqual(classify_ssh_failure(1, "Permission denied: /opt/tool"), "remote_exec_error")
 
 
 if __name__ == "__main__":

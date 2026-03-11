@@ -15,6 +15,7 @@ class TestSlurmStateAndClass(unittest.TestCase):
     def test_classify_node(self) -> None:
         self.assertEqual(classify_node("dtn01", "compute"), "transfer")
         self.assertEqual(classify_node("jean-dtn01", "", "transfer"), "transfer")
+        self.assertEqual(classify_node("jean-v01", "", "viz"), "visualization")
         self.assertEqual(classify_node("node01", "transfer"), "transfer")
         self.assertEqual(classify_node("node01", "compute"), "compute")
 

@@ -81,6 +81,28 @@ def normalize_node_type(raw: str) -> str:
         return "bigmem"
     return toks[0]
 
+
+def classify_scheduler_node(active_scheduler: str, node: str, meta: Dict[str, str]) -> str:
+    nodetype = meta.get("resources_available.nodetype", "")
+    if active_scheduler == "slurm":
+        return slurm_classify_node(node, nodetype, meta.get("scheduler.partition", ""))
+    return pbs_classify_node(
+        node,
+        nodetype,
+        meta.get("resources_available.clustertype", ""),
+        meta.get("resources_available.bigmem", ""),
+        meta.get("resources_available.compute", ""),
+    )
+
+
+def add_bool_option(ap: argparse.ArgumentParser, name: str, default: bool, help_text: str = "") -> None:
+    if hasattr(argparse, "BooleanOptionalAction"):
+        ap.add_argument(name, action=argparse.BooleanOptionalAction, default=default, help=help_text)
+        return
+    dest = name.lstrip("-").replace("-", "_")
+    ap.add_argument(name, dest=dest, action="store_true", default=default, help=help_text)
+    ap.add_argument(f"--no-{name[2:]}", dest=dest, action="store_false")
+
 def main():
     ap = argparse.ArgumentParser(
         description="Cluster library inventory and compatibility sweep",
@@ -104,8 +126,8 @@ def main():
     ap.add_argument("--login-max", type=int, default=50)
     ap.add_argument("--login-stop-after-gap", type=int, default=6)
 
-    ap.add_argument("--pbs-online-only", action=argparse.BooleanOptionalAction, default=True)
-    ap.add_argument("--pbs-compute-flag-only", action=argparse.BooleanOptionalAction, default=True)
+    add_bool_option(ap, "--pbs-online-only", True)
+    add_bool_option(ap, "--pbs-compute-flag-only", True)
 
     ap.add_argument("--baseline-from", choices=["login-consensus","login-union","login-intersection","none"], default="login-consensus")
     ap.add_argument("--baseline-major", type=int, default=None)
@@ -117,18 +139,8 @@ def main():
 
     ap.add_argument("--ssh-hostkey", choices=["accept-new","no","yes"], default="accept-new")
     ap.add_argument("--ssh-known-hosts", default=None)
-    ap.add_argument(
-        "--ssh-control-master",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Enable OpenSSH connection reuse (default: enabled)",
-    )
-    ap.add_argument(
-        "--remote-low-priority",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Run remote probe with low CPU priority via nice (default: enabled)",
-    )
+    add_bool_option(ap, "--ssh-control-master", True, "Enable OpenSSH connection reuse (default: enabled)")
+    add_bool_option(ap, "--remote-low-priority", True, "Run remote probe with low CPU priority via nice (default: enabled)")
 
     ap.add_argument("--out-prefix", default="lib_sweep")
     ap.add_argument("--dry-run", action="store_true")
@@ -372,12 +384,8 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
-        node_class = (
-            slurm_classify_node(node, pbs_nodetype, scheduler_partition)
-            if active_scheduler == "slurm"
-            else pbs_classify_node(node, pbs_nodetype)
-        )
-        node_type = normalize_node_type(pbs_nodetype)
+        node_class = classify_scheduler_node(active_scheduler, node, meta)
+        node_type = node_class
 
         majors_list = r.get("majors") or []
         majors_csv = ",".join(str(m) for m in majors_list)
@@ -438,12 +446,8 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
-        node_class = (
-            slurm_classify_node(node, pbs_nodetype, scheduler_partition)
-            if active_scheduler == "slurm"
-            else pbs_classify_node(node, pbs_nodetype)
-        )
-        node_type = normalize_node_type(pbs_nodetype)
+        node_class = classify_scheduler_node(active_scheduler, node, meta)
+        node_type = node_class
 
         row = {
             "node": node,

@@ -1,7 +1,6 @@
 import os
 import subprocess
 import time
-from dataclasses import dataclass
 from typing import List, Tuple
 
 def run(cmd: List[str], timeout: int = 60) -> subprocess.CompletedProcess:
@@ -21,7 +20,7 @@ def classify_ssh_failure(rc: int, stderr: str) -> str:
     s = (stderr or "").lower()
     if rc == 0:
         return "ok"
-    if "permission denied" in s:
+    if rc == 255 and "permission denied" in s:
         return "policy_denied"
     if "could not resolve hostname" in s or "name or service not known" in s or "temporary failure in name resolution" in s:
         return "dns"
@@ -41,17 +40,28 @@ def classify_ssh_failure(rc: int, stderr: str) -> str:
         return "ssh_error"
     return "remote_exec_error"
 
-@dataclass
 class SSHConfig:
-    known_hosts: str
-    hostkey_mode: str  # accept-new | no | yes
-    loglevel: str
-    connect_timeout: int
-    server_alive_interval: int
-    server_alive_count_max: int
-    control_master: bool
-    control_persist: str
-    control_path: str
+    def __init__(
+        self,
+        known_hosts: str,
+        hostkey_mode: str,
+        loglevel: str,
+        connect_timeout: int,
+        server_alive_interval: int,
+        server_alive_count_max: int,
+        control_master: bool,
+        control_persist: str,
+        control_path: str,
+    ) -> None:
+        self.known_hosts = known_hosts
+        self.hostkey_mode = hostkey_mode
+        self.loglevel = loglevel
+        self.connect_timeout = connect_timeout
+        self.server_alive_interval = server_alive_interval
+        self.server_alive_count_max = server_alive_count_max
+        self.control_master = control_master
+        self.control_persist = control_persist
+        self.control_path = control_path
 
     def base_args(self) -> List[str]:
         args = [
