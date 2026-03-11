@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from pbs import parse_pbsnodes_a, pbs_inventory, select_compute_nodes, state_is_online
+from pbs import classify_node, parse_pbsnodes_a, pbs_inventory, select_compute_nodes, state_is_online
 
 
 class TestPBSParsing(unittest.TestCase):
@@ -31,6 +31,11 @@ dtn01
         self.assertTrue(state_is_online("job-exclusive,busy"))
         self.assertFalse(state_is_online("down"))
         self.assertFalse(state_is_online("free,offline"))
+
+    def test_classify_node_aliases(self) -> None:
+        self.assertEqual(classify_node("jean-dtn01", ""), "transfer")
+        self.assertEqual(classify_node("ruth-g01", "vis,viz"), "visualization")
+        self.assertEqual(classify_node("node01", "compute", bigmem="1"), "bigmem")
 
 
 class TestPBSSelection(unittest.TestCase):

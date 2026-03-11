@@ -37,7 +37,9 @@ def classify_ssh_failure(rc: int, stderr: str) -> str:
         return "refused"
     if "kex_exchange_identification" in s or "connection reset by peer" in s or "connection closed by remote host" in s:
         return "reset_or_throttle"
-    return "ssh_error"
+    if rc == 255:
+        return "ssh_error"
+    return "remote_exec_error"
 
 @dataclass
 class SSHConfig:
@@ -98,7 +100,17 @@ def ssh_with_retries(node: str, argv: List[str], cfg: SSHConfig, timeout: int, r
     last = None
     last_kind = "ssh_error"
     for attempt in range(retries + 1):
-        p = ssh(node, argv, cfg, timeout=timeout)
+        try:
+            p = ssh(node, argv, cfg, timeout=timeout)
+        except subprocess.TimeoutExpired as ex:
+            tout_stdout = ex.stdout.decode(errors="replace") if isinstance(ex.stdout, bytes) else (ex.stdout or "")
+            tout_stderr = ex.stderr.decode(errors="replace") if isinstance(ex.stderr, bytes) else (ex.stderr or "")
+            p = subprocess.CompletedProcess(
+                args=ex.cmd,
+                returncode=255,
+                stdout=tout_stdout,
+                stderr=tout_stderr + "\noperation timed out",
+            )
         last = p
         last_kind = classify_ssh_failure(p.returncode, p.stderr)
         if p.returncode == 0:

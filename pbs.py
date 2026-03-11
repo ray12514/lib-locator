@@ -1,3 +1,4 @@
+import re
 from typing import Dict, List, Set, Tuple
 from sshfanout import run, short_hostname
 
@@ -24,13 +25,26 @@ def state_is_online(state: str) -> bool:
     return not ({"down", "offline"} & toks)
 
 def nodetype_tokens(nodetype: str) -> List[str]:
-    return [t.strip().lower() for t in (nodetype or "").split(",") if t.strip()]
+    return [t for t in re.split(r"[^a-z0-9]+", (nodetype or "").lower()) if t]
 
-def classify_node(host: str, nodetype: str) -> str:
-    h = (host or "").lower()
-    nt = (nodetype or "").lower()
-    if h.startswith(("dtn", "dnt")) or "transfer" in nt:
+
+def _is_true(v: str) -> bool:
+    return (v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+def classify_node(host: str, nodetype: str, clustertype: str = "", bigmem: str = "", compute: str = "") -> str:
+    host_toks = set(nodetype_tokens(host))
+    host_transfer = any(t.startswith(("dtn", "dnt")) for t in host_toks)
+    nodetype_toks = set(nodetype_tokens(nodetype))
+    cluster_toks = set(nodetype_tokens(clustertype))
+    combined = nodetype_toks | cluster_toks
+
+    if host_transfer or ({"transfer", "xfer", "dtn", "dnt", "datatransfer"} & (combined | host_toks)):
         return "transfer"
+    if {"visualization", "visual", "viz", "vis"} & combined:
+        return "visualization"
+    if _is_true(bigmem) or ({"bigmem", "highmem", "hmem", "largemem"} & combined):
+        return "bigmem"
+
     toks = nodetype_tokens(nodetype)
     return toks[0] if toks else "compute"
 
@@ -45,7 +59,13 @@ def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
     for node, meta in inv.items():
         raw_nodetype = meta.get("resources_available.nodetype", "")
         if not (raw_nodetype or "").strip():
-            meta["resources_available.nodetype"] = classify_node(node, raw_nodetype)
+            meta["resources_available.nodetype"] = classify_node(
+                node,
+                raw_nodetype,
+                meta.get("resources_available.clustertype", ""),
+                meta.get("resources_available.bigmem", ""),
+                meta.get("resources_available.compute", ""),
+            )
     all_nodes = list(inv.keys())
     online = [n for n in all_nodes if state_is_online(inv.get(n, {}).get("state",""))]
     return all_nodes, online, inv
@@ -62,7 +82,13 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
         meta = inv.get(n, {})
         st = meta.get("state", "")
         nodetype = meta.get("resources_available.nodetype", "")
-        nclass = classify_node(n, nodetype)
+        nclass = classify_node(
+            n,
+            nodetype,
+            meta.get("resources_available.clustertype", ""),
+            meta.get("resources_available.bigmem", ""),
+            meta.get("resources_available.compute", ""),
+        )
         compute_flag = meta.get("resources_available.compute", "").strip()
 
         if compute_flag_only:
@@ -79,7 +105,13 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
             meta = inv.get(n, {})
             st = meta.get("state", "")
             nodetype = meta.get("resources_available.nodetype", "")
-            nclass = classify_node(n, nodetype)
+            nclass = classify_node(
+                n,
+                nodetype,
+                meta.get("resources_available.clustertype", ""),
+                meta.get("resources_available.bigmem", ""),
+                meta.get("resources_available.compute", ""),
+            )
             skipped.append((n, "offline_or_down", st, nclass, nodetype))
 
     # de-dupe preserve order

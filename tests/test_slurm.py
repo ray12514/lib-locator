@@ -14,6 +14,7 @@ class TestSlurmStateAndClass(unittest.TestCase):
 
     def test_classify_node(self) -> None:
         self.assertEqual(classify_node("dtn01", "compute"), "transfer")
+        self.assertEqual(classify_node("jean-dtn01", "", "transfer"), "transfer")
         self.assertEqual(classify_node("node01", "transfer"), "transfer")
         self.assertEqual(classify_node("node01", "compute"), "compute")
 
@@ -59,6 +60,20 @@ class TestSlurmSelection(unittest.TestCase):
 
         self.assertEqual(inv["node001"]["resources_available.nodetype"], "compute")
         self.assertEqual(inv["dtn01"]["resources_available.nodetype"], "transfer")
+
+    def test_inventory_aggregates_partitions_and_marks_transfer(self) -> None:
+        raw = "\n".join([
+            "jean675|allocated|background|(null)",
+            "jean675|allocated|standard*|(null)",
+            "jean-dtn01|idle|transfer|(null)",
+        ])
+        with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+            _, _, inv = slurm_inventory()
+
+        self.assertEqual(inv["jean675"]["resources_available.compute"], "1")
+        self.assertEqual(inv["jean-dtn01"]["resources_available.nodetype"], "transfer")
+        self.assertEqual(inv["jean-dtn01"]["resources_available.compute"], "0")
+        self.assertEqual(inv["jean675"]["scheduler.partition"], "background,standard")
 
 
 if __name__ == "__main__":

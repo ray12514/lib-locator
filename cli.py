@@ -69,8 +69,17 @@ def normalize_node_type(raw: str) -> str:
     s = (raw or "").strip()
     if not s:
         return "compute"
-    first = s.split(",", 1)[0].strip().lower()
-    return first if first else "compute"
+    toks = [t for t in re.split(r"[^a-z0-9]+", s.lower()) if t]
+    if not toks:
+        return "compute"
+    tokset = set(toks)
+    if {"transfer", "xfer", "dtn", "dnt", "datatransfer"} & tokset:
+        return "transfer"
+    if {"visualization", "visual", "viz", "vis"} & tokset:
+        return "visualization"
+    if {"bigmem", "highmem", "hmem", "largemem"} & tokset:
+        return "bigmem"
+    return toks[0]
 
 def main():
     ap = argparse.ArgumentParser(
@@ -249,14 +258,18 @@ def main():
         node = short_hostname(node)
 
         if p.returncode != 0:
+            status = "probe_error" if kind == "remote_exec_error" else "ssh_error"
+            detail = (p.stderr or "").strip()[:240]
+            if not detail and kind == "remote_exec_error":
+                detail = f"remote command exited with rc {p.returncode}"
             return [{
                 "role": role,
                 "node": node,
                 "lib_query": lib,
-                "status": "ssh_error",
+                "status": status,
                 "ssh_rc": str(p.returncode),
                 "ssh_error_kind": kind,
-                "ssh_error_detail": (p.stderr or "").strip()[:240],
+                "ssh_error_detail": detail,
             } for lib in args.lib]
 
         recs = []
@@ -310,7 +323,7 @@ def main():
                 continue
 
             for r in rows:
-                if r.get("status") == "ssh_error":
+                if r.get("status") in ("ssh_error", "probe_error"):
                     error_records.append(r)
                 else:
                     ok_records.append(r)
@@ -359,7 +372,11 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
-        node_class = slurm_classify_node(node, pbs_nodetype) if active_scheduler == "slurm" else pbs_classify_node(node, pbs_nodetype)
+        node_class = (
+            slurm_classify_node(node, pbs_nodetype, scheduler_partition)
+            if active_scheduler == "slurm"
+            else pbs_classify_node(node, pbs_nodetype)
+        )
         node_type = normalize_node_type(pbs_nodetype)
 
         majors_list = r.get("majors") or []
@@ -421,7 +438,11 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
-        node_class = slurm_classify_node(node, pbs_nodetype) if active_scheduler == "slurm" else pbs_classify_node(node, pbs_nodetype)
+        node_class = (
+            slurm_classify_node(node, pbs_nodetype, scheduler_partition)
+            if active_scheduler == "slurm"
+            else pbs_classify_node(node, pbs_nodetype)
+        )
         node_type = normalize_node_type(pbs_nodetype)
 
         row = {
