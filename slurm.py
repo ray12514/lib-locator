@@ -39,7 +39,7 @@ def state_is_online(state: str) -> bool:
     return not any(tok in s for tok in blocked)
 
 
-def classify_node(host: str, nodetype: str, partition: str = "") -> str:
+def resolve_node_type(host: str, nodetype: str, partition: str = "") -> str:
     host_toks = set(_tokenize(host))
     host_transfer = any(t.startswith(("dtn", "dnt")) for t in host_toks)
     nodetype_toks = set(_tokenize(nodetype))
@@ -52,6 +52,16 @@ def classify_node(host: str, nodetype: str, partition: str = "") -> str:
         return "visualization"
     if {"bigmem", "highmem", "hmem", "largemem"} & combined:
         return "bigmem"
+
+    if nodetype_toks:
+        return _tokenize(nodetype)[0]
+    return "compute"
+
+
+def classify_node(host: str, nodetype: str, partition: str = "") -> str:
+    node_type = resolve_node_type(host, nodetype, partition)
+    if node_type in {"transfer", "visualization", "bigmem"}:
+        return node_type
     return "compute"
 
 
@@ -82,9 +92,10 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
         state = state_raw.strip().lower()
         partition = partition_raw.strip().replace("*", "")
         nodetype = _nodetype_from_features(features_raw)
+        node_type = resolve_node_type(node, nodetype, partition)
         node_class = classify_node(node, nodetype, partition)
         if not nodetype:
-            nodetype = node_class
+            nodetype = node_type
 
         state_by_node.setdefault(node, set()).add(state)
         if partition:
@@ -98,6 +109,8 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
             class_by_node[node] = "transfer"
         elif prev_class == "bigmem" or node_class == "bigmem":
             class_by_node[node] = "bigmem"
+        elif prev_class == "visualization" or node_class == "visualization":
+            class_by_node[node] = "visualization"
         elif not prev_class:
             class_by_node[node] = node_class
 

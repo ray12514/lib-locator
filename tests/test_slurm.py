@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from slurm import classify_node, select_compute_nodes, slurm_inventory, state_is_online
+from slurm import classify_node, resolve_node_type, select_compute_nodes, slurm_inventory, state_is_online
 
 
 class TestSlurmStateAndClass(unittest.TestCase):
@@ -18,6 +18,11 @@ class TestSlurmStateAndClass(unittest.TestCase):
         self.assertEqual(classify_node("jean-v01", "", "viz"), "visualization")
         self.assertEqual(classify_node("node01", "transfer"), "transfer")
         self.assertEqual(classify_node("node01", "compute"), "compute")
+
+    def test_resolve_node_type(self) -> None:
+        self.assertEqual(resolve_node_type("jean675", "aiml", "standard,interactive"), "aiml")
+        self.assertEqual(resolve_node_type("jean675", "", "high,debug"), "compute")
+        self.assertEqual(resolve_node_type("jean-dtn01", "", "transfer"), "transfer")
 
 
 class TestSlurmSelection(unittest.TestCase):

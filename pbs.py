@@ -31,19 +31,32 @@ def nodetype_tokens(nodetype: str) -> List[str]:
 def _is_true(v: str) -> bool:
     return (v or "").strip().lower() in {"1", "true", "yes", "on"}
 
-def classify_node(host: str, nodetype: str, clustertype: str = "", bigmem: str = "", compute: str = "") -> str:
+
+def _first_token(raw: str) -> str:
+    toks = nodetype_tokens(raw)
+    return toks[0] if toks else ""
+
+
+def resolve_node_type(host: str, nodetype: str, clustertype: str = "", bigmem: str = "", compute: str = "") -> str:
     host_toks = set(nodetype_tokens(host))
     host_transfer = any(t.startswith(("dtn", "dnt")) for t in host_toks)
     nodetype_toks = set(nodetype_tokens(nodetype))
     cluster_toks = set(nodetype_tokens(clustertype))
-    combined = nodetype_toks | cluster_toks
 
-    if host_transfer or ({"transfer", "xfer", "dtn", "dnt", "datatransfer"} & (combined | host_toks)):
-        return "transfer"
-    if {"visualization", "visual", "viz", "vis"} & combined:
-        return "visualization"
-    if _is_true(bigmem) or ({"bigmem", "highmem", "hmem", "largemem"} & combined):
+    if _is_true(bigmem) or ({"bigmem", "highmem", "hmem", "largemem"} & (nodetype_toks | cluster_toks)):
         return "bigmem"
+    if host_transfer or ({"transfer", "xfer", "dtn", "dnt", "datatransfer"} & (cluster_toks | host_toks | nodetype_toks)):
+        return "transfer"
+    if {"visualization", "visual", "viz", "vis"} & (nodetype_toks | cluster_toks):
+        return "visualization"
+
+    primary = _first_token(nodetype)
+    return primary if primary else "compute"
+
+def classify_node(host: str, nodetype: str, clustertype: str = "", bigmem: str = "", compute: str = "") -> str:
+    node_type = resolve_node_type(host, nodetype, clustertype, bigmem, compute)
+    if node_type in {"transfer", "visualization", "bigmem"}:
+        return node_type
     return "compute"
 
 def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
@@ -57,7 +70,7 @@ def pbs_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
     for node, meta in inv.items():
         raw_nodetype = meta.get("resources_available.nodetype", "")
         if not (raw_nodetype or "").strip():
-            meta["resources_available.nodetype"] = classify_node(
+            meta["resources_available.nodetype"] = resolve_node_type(
                 node,
                 raw_nodetype,
                 meta.get("resources_available.clustertype", ""),

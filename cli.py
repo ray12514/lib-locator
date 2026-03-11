@@ -9,8 +9,18 @@ from datetime import datetime, timezone
 from typing import Dict, List, Set
 
 from sshfanout import default_ssh_config, ssh_with_retries, short_hostname
-from pbs import pbs_inventory, select_compute_nodes as pbs_select_compute_nodes, classify_node as pbs_classify_node
-from slurm import slurm_inventory, select_compute_nodes as slurm_select_compute_nodes, classify_node as slurm_classify_node
+from pbs import (
+    classify_node as pbs_classify_node,
+    pbs_inventory,
+    resolve_node_type as pbs_resolve_node_type,
+    select_compute_nodes as pbs_select_compute_nodes,
+)
+from slurm import (
+    classify_node as slurm_classify_node,
+    resolve_node_type as slurm_resolve_node_type,
+    select_compute_nodes as slurm_select_compute_nodes,
+    slurm_inventory,
+)
 from probe import probe_node
 from baseline import compute_baseline_majors
 from report import write_pbs_skipped, write_node_lists, build_report
@@ -87,6 +97,19 @@ def classify_scheduler_node(active_scheduler: str, node: str, meta: Dict[str, st
     if active_scheduler == "slurm":
         return slurm_classify_node(node, nodetype, meta.get("scheduler.partition", ""))
     return pbs_classify_node(
+        node,
+        nodetype,
+        meta.get("resources_available.clustertype", ""),
+        meta.get("resources_available.bigmem", ""),
+        meta.get("resources_available.compute", ""),
+    )
+
+
+def resolve_scheduler_node_type(active_scheduler: str, node: str, meta: Dict[str, str]) -> str:
+    nodetype = meta.get("resources_available.nodetype", "")
+    if active_scheduler == "slurm":
+        return slurm_resolve_node_type(node, nodetype, meta.get("scheduler.partition", ""))
+    return pbs_resolve_node_type(
         node,
         nodetype,
         meta.get("resources_available.clustertype", ""),
@@ -385,7 +408,7 @@ def main():
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
         node_class = classify_scheduler_node(active_scheduler, node, meta)
-        node_type = node_class
+        node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
 
         majors_list = r.get("majors") or []
         majors_csv = ",".join(str(m) for m in majors_list)
@@ -447,7 +470,7 @@ def main():
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
         node_class = classify_scheduler_node(active_scheduler, node, meta)
-        node_type = node_class
+        node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
 
         row = {
             "node": node,

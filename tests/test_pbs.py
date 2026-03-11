@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from pbs import classify_node, parse_pbsnodes_a, pbs_inventory, select_compute_nodes, state_is_online
+from pbs import classify_node, parse_pbsnodes_a, pbs_inventory, resolve_node_type, select_compute_nodes, state_is_online
 
 
 class TestPBSParsing(unittest.TestCase):
@@ -36,6 +36,11 @@ dtn01
         self.assertEqual(classify_node("jean-dtn01", ""), "transfer")
         self.assertEqual(classify_node("ruth-g01", "vis,viz"), "visualization")
         self.assertEqual(classify_node("node01", "compute", bigmem="1"), "bigmem")
+
+    def test_resolve_node_type(self) -> None:
+        self.assertEqual(resolve_node_type("node01", "aiml,highperf"), "aiml")
+        self.assertEqual(resolve_node_type("node01", "aiml,highperf", bigmem="1"), "bigmem")
+        self.assertEqual(resolve_node_type("node01", "compute", clustertype="transfer,batch,long"), "transfer")
 
 
 class TestPBSSelection(unittest.TestCase):
