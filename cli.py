@@ -5,6 +5,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Set
 
@@ -42,6 +43,8 @@ EXAMPLES = """Examples:
   Print this examples menu:
     ./libsweep --examples
 """
+
+MAX_WORKERS = 128
 
 
 def detect_scheduler(mode: str) -> str:
@@ -90,6 +93,29 @@ def normalize_node_type(raw: str) -> str:
     if {"bigmem", "highmem", "hmem", "largemem"} & tokset:
         return "bigmem"
     return toks[0]
+
+
+def clamp_workers(requested: int, cap: int = MAX_WORKERS) -> int:
+    if requested < 1:
+        return 1
+    return requested if requested <= cap else cap
+
+
+def configure_thread_stack_size() -> str:
+    kb_raw = os.environ.get("LIBSWEEP_THREAD_STACK_KB", "1024").strip()
+    if not kb_raw:
+        return "default"
+    try:
+        kb = int(kb_raw)
+    except ValueError:
+        return "default"
+    if kb <= 0:
+        return "default"
+    try:
+        threading.stack_size(kb * 1024)
+        return f"{kb}KiB"
+    except (ValueError, RuntimeError):
+        return "default"
 
 
 def classify_scheduler_node(active_scheduler: str, node: str, meta: Dict[str, str]) -> str:
@@ -162,7 +188,7 @@ def main():
 
     ap.add_argument("--ssh-hostkey", choices=["accept-new","no","yes"], default="accept-new")
     ap.add_argument("--ssh-known-hosts", default=None)
-    add_bool_option(ap, "--ssh-control-master", True, "Enable OpenSSH connection reuse (default: enabled)")
+    add_bool_option(ap, "--ssh-control-master", False, "Enable OpenSSH connection reuse (default: disabled)")
     add_bool_option(ap, "--remote-low-priority", True, "Run remote probe with low CPU priority via nice (default: enabled)")
 
     ap.add_argument("--out-prefix", default="lib_sweep")
@@ -187,6 +213,14 @@ def main():
     if not args.lib:
         ap.error("--lib is required unless --examples is used")
 
+    requested_workers = args.workers
+    args.workers = clamp_workers(args.workers)
+    if args.workers != requested_workers:
+        print(
+            f"warning: clamping --workers from {requested_workers} to {args.workers} (cap={MAX_WORKERS})",
+            file=sys.stderr,
+        )
+
     # Probe mode
     if args.probe:
         ts = datetime.now(timezone.utc).isoformat()
@@ -208,6 +242,8 @@ def main():
         cfg.known_hosts = os.path.expanduser(args.ssh_known_hosts)
         os.makedirs(os.path.dirname(cfg.known_hosts), exist_ok=True)
     cfg.control_master = bool(args.ssh_control_master)
+
+    thread_stack_setting = configure_thread_stack_size()
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_prefix = f"{args.out_prefix}_{ts}"
@@ -264,6 +300,9 @@ def main():
         print(f"DRY RUN {ts}")
         print(f"Scope: {scope}")
         print(f"Scheduler: {active_scheduler}")
+        print(f"SSH control master: {'enabled' if cfg.control_master else 'disabled'}")
+        print(f"Workers: requested={requested_workers} effective={args.workers} cap={MAX_WORKERS}")
+        print(f"Thread stack: {thread_stack_setting}")
         print(f"Libraries: {args.lib}")
         print(f"Login nodes: {len(login_nodes)} sample: {', '.join(login_nodes[:20])}")
         print(f"Compute nodes selected: {len(compute_nodes)} sample: {', '.join(compute_nodes[:20])}")

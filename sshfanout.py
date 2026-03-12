@@ -67,7 +67,9 @@ class SSHConfig:
         args = [
             "ssh",
             "-T",
+            "-n",
             "-o", "BatchMode=yes",
+            "-o", "StdinNull=yes",
             "-o", f"StrictHostKeyChecking={self.hostkey_mode}",
             "-o", f"UserKnownHostsFile={self.known_hosts}",
             "-o", "GlobalKnownHostsFile=/dev/null",

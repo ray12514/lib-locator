@@ -1,9 +1,15 @@
 import unittest
 
-from sshfanout import classify_ssh_failure
+from sshfanout import classify_ssh_failure, default_ssh_config
 
 
 class TestSSHFanout(unittest.TestCase):
+    def test_base_args_detach_stdin(self) -> None:
+        cfg = default_ssh_config()
+        args = cfg.base_args()
+        self.assertIn("-n", args)
+        self.assertIn("StdinNull=yes", args)
+
     def test_classify_ok(self) -> None:
         self.assertEqual(classify_ssh_failure(0, ""), "ok")
 

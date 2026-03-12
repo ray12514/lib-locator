@@ -1,9 +1,15 @@
 import unittest
 
-from cli import classify_scheduler_node, normalize_node_type, resolve_scheduler_node_type
+from cli import clamp_workers, classify_scheduler_node, normalize_node_type, resolve_scheduler_node_type
 
 
 class TestCliHelpers(unittest.TestCase):
+    def test_clamp_workers(self) -> None:
+        self.assertEqual(clamp_workers(0), 1)
+        self.assertEqual(clamp_workers(1), 1)
+        self.assertEqual(clamp_workers(32), 32)
+        self.assertEqual(clamp_workers(129), 128)
+
     def test_normalize_node_type(self) -> None:
         self.assertEqual(normalize_node_type(""), "compute")
         self.assertEqual(normalize_node_type("  "), "compute")
