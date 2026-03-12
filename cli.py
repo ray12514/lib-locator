@@ -121,7 +121,12 @@ def configure_thread_stack_size() -> str:
 def classify_scheduler_node(active_scheduler: str, node: str, meta: Dict[str, str]) -> str:
     nodetype = meta.get("resources_available.nodetype", "")
     if active_scheduler == "slurm":
-        return slurm_classify_node(node, nodetype, meta.get("scheduler.partition", ""))
+        return slurm_classify_node(
+            node,
+            nodetype,
+            meta.get("scheduler.partition", ""),
+            meta.get("scheduler.gres", ""),
+        )
     return pbs_classify_node(
         node,
         nodetype,
@@ -134,7 +139,12 @@ def classify_scheduler_node(active_scheduler: str, node: str, meta: Dict[str, st
 def resolve_scheduler_node_type(active_scheduler: str, node: str, meta: Dict[str, str]) -> str:
     nodetype = meta.get("resources_available.nodetype", "")
     if active_scheduler == "slurm":
-        return slurm_resolve_node_type(node, nodetype, meta.get("scheduler.partition", ""))
+        return slurm_resolve_node_type(
+            node,
+            nodetype,
+            meta.get("scheduler.partition", ""),
+            meta.get("scheduler.gres", ""),
+        )
     return pbs_resolve_node_type(
         node,
         nodetype,
@@ -663,6 +673,7 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
+        scheduler_gres = meta.get("scheduler.gres", "")
         node_class = classify_scheduler_node(active_scheduler, node, meta)
         node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
 
@@ -707,6 +718,7 @@ def main():
                 "node_class": node_class,
                 "scheduler": active_scheduler,
                 "scheduler_partition": scheduler_partition,
+                "scheduler_gres": scheduler_gres,
                 "pbs_state": pbs_state,
                 "pbs_nodetype": pbs_nodetype,
                 "pbs_compute_flag": pbs_compute_flag,
@@ -725,6 +737,7 @@ def main():
         pbs_nodetype = meta.get("resources_available.nodetype","")
         pbs_compute_flag = meta.get("resources_available.compute","").strip()
         scheduler_partition = meta.get("scheduler.partition", "")
+        scheduler_gres = meta.get("scheduler.gres", "")
         node_class = classify_scheduler_node(active_scheduler, node, meta)
         node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
 
@@ -748,6 +761,7 @@ def main():
                 "node_class": node_class,
                 "scheduler": active_scheduler if role == "compute" else "local",
                 "scheduler_partition": scheduler_partition,
+                "scheduler_gres": scheduler_gres,
                 "pbs_state": pbs_state,
                 "pbs_nodetype": pbs_nodetype,
                 "pbs_compute_flag": pbs_compute_flag,
@@ -973,6 +987,7 @@ def main():
         "node_class",
         "scheduler",
         "scheduler_partition",
+        "scheduler_gres",
         "pbs_state",
         "pbs_nodetype",
         "pbs_compute_flag",

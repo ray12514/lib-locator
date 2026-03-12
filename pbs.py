@@ -103,10 +103,12 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
         compute_flag = meta.get("resources_available.compute", "").strip()
 
         if compute_flag_only:
-            if compute_flag == "1":
+            if nclass == "transfer":
+                skipped.append((n, "non_compute", st, nclass, nodetype))
+            elif compute_flag == "1" or nclass in {"bigmem", "visualization"}:
                 selected.append(n)
             else:
-                skipped.append((n, "non_compute", st, nclass, nodetype))
+                selected.append(n)
         else:
             selected.append(n)
 

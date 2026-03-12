@@ -56,6 +56,17 @@ class TestPBSSelection(unittest.TestCase):
                 "resources_available.nodetype": "transfer",
                 "resources_available.compute": "0",
             },
+            "vis01": {
+                "state": "free",
+                "resources_available.nodetype": "vis,viz",
+                "resources_available.compute": "0",
+            },
+            "bm01": {
+                "state": "free",
+                "resources_available.nodetype": "compute",
+                "resources_available.bigmem": "1",
+                "resources_available.compute": "0",
+            },
             "node002": {
                 "state": "offline",
                 "resources_available.nodetype": "compute",
@@ -74,11 +85,10 @@ class TestPBSSelection(unittest.TestCase):
             compute_flag_only=True,
         )
 
-        self.assertEqual(selected, ["node001"])
+        self.assertEqual(selected, ["bm01", "node001", "node003", "vis01"])
 
         reasons = {(node, reason) for node, reason, *_ in skipped}
         self.assertIn(("dtn01", "non_compute"), reasons)
-        self.assertIn(("node003", "non_compute"), reasons)
         self.assertIn(("node002", "offline_or_down"), reasons)
 
     def test_inventory_fills_missing_nodetype(self) -> None:

@@ -49,7 +49,7 @@ Use `--scheduler` to control inventory source:
 - `slurm`: uses `sinfo`
 - `pbs`: uses `pbsnodes -a`
 
-For your environment, Slurm nodetype is read from Slurm node features and mapped into the same `nodetype` field used by PBS logic.
+For your environment, Slurm nodetype is derived from Slurm features and GRES (with GRES used as fallback when `%f` is null), then mapped into the same `nodetype` field used by PBS logic.
 
 ## Common workflows
 
@@ -127,7 +127,7 @@ Login discovery:
 Compute node selection:
 
 - `--pbs-online-only` / `--no-pbs-online-only`: include only online nodes (default enabled)
-- `--pbs-compute-flag-only` / `--no-pbs-compute-flag-only`: include only nodes marked compute-eligible (default enabled)
+- `--pbs-compute-flag-only` / `--no-pbs-compute-flag-only`: when enabled (default), excludes transfer-class nodes while keeping other online node classes (for example bigmem/visualization)
 
 Baseline:
 

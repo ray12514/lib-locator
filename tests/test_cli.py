@@ -43,16 +43,24 @@ class TestCliHelpers(unittest.TestCase):
         slurm_meta_transfer = {
             "resources_available.nodetype": "",
             "scheduler.partition": "transfer",
+            "scheduler.gres": "",
         }
         slurm_meta_compute = {
             "resources_available.nodetype": "",
             "scheduler.partition": "standard,interactive",
+            "scheduler.gres": "",
+        }
+        slurm_meta_vis = {
+            "resources_available.nodetype": "",
+            "scheduler.partition": "interactive",
+            "scheduler.gres": "srd:1",
         }
 
         self.assertEqual(classify_scheduler_node("pbs", "ruth-g01", pbs_meta_vis), "visualization")
         self.assertEqual(classify_scheduler_node("pbs", "node001", pbs_meta_bigmem), "bigmem")
         self.assertEqual(classify_scheduler_node("slurm", "jean-dtn01", slurm_meta_transfer), "transfer")
         self.assertEqual(classify_scheduler_node("slurm", "jean675", slurm_meta_compute), "compute")
+        self.assertEqual(classify_scheduler_node("slurm", "jean-v01", slurm_meta_vis), "visualization")
 
     def test_resolve_scheduler_node_type(self) -> None:
         pbs_meta = {
@@ -76,14 +84,27 @@ class TestCliHelpers(unittest.TestCase):
         slurm_feature = {
             "resources_available.nodetype": "aiml",
             "scheduler.partition": "standard,interactive",
+            "scheduler.gres": "",
         }
         slurm_generic_partition = {
             "resources_available.nodetype": "",
             "scheduler.partition": "high,debug",
+            "scheduler.gres": "",
         }
         slurm_transfer_partition = {
             "resources_available.nodetype": "",
             "scheduler.partition": "transfer",
+            "scheduler.gres": "",
+        }
+        slurm_gres_bigmem = {
+            "resources_available.nodetype": "",
+            "scheduler.partition": "standard",
+            "scheduler.gres": "lm:1",
+        }
+        slurm_gres_raw = {
+            "resources_available.nodetype": "",
+            "scheduler.partition": "standard",
+            "scheduler.gres": "highperf:1",
         }
 
         self.assertEqual(resolve_scheduler_node_type("pbs", "node001", pbs_meta), "aiml")
@@ -92,6 +113,8 @@ class TestCliHelpers(unittest.TestCase):
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean675", slurm_feature), "aiml")
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean675", slurm_generic_partition), "compute")
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean-dtn01", slurm_transfer_partition), "transfer")
+        self.assertEqual(resolve_scheduler_node_type("slurm", "jean-lm01", slurm_gres_bigmem), "bigmem")
+        self.assertEqual(resolve_scheduler_node_type("slurm", "jean-hp01", slurm_gres_raw), "highperf")
 
     def test_build_discrepancy_representatives(self) -> None:
         rows = [

@@ -20,6 +20,14 @@ def _nodetype_from_features(features: str) -> str:
     return toks[0] if toks else ""
 
 
+def _gres_tokens(gres: str) -> List[str]:
+    raw = (gres or "").strip().lower()
+    if not raw or raw in {"(null)", "null", "n/a"}:
+        return []
+    toks = [t for t in _tokenize(raw) if t and not t.isdigit() and t not in {"null", "n", "a"}]
+    return toks
+
+
 def state_is_online(state: str) -> bool:
     s = (state or "").strip().lower()
     blocked = (
@@ -39,61 +47,79 @@ def state_is_online(state: str) -> bool:
     return not any(tok in s for tok in blocked)
 
 
-def resolve_node_type(host: str, nodetype: str, partition: str = "") -> str:
+def resolve_node_type(host: str, nodetype: str, partition: str = "", gres: str = "") -> str:
     host_toks = set(_tokenize(host))
     host_transfer = any(t.startswith(("dtn", "dnt")) for t in host_toks)
     nodetype_toks = set(_tokenize(nodetype))
     partition_toks = set(_tokenize(partition))
-    combined = nodetype_toks | partition_toks
+    gres_toks_list = _gres_tokens(gres)
+    gres_toks = set(gres_toks_list)
+    combined = nodetype_toks | partition_toks | gres_toks
 
     if host_transfer or ({"transfer", "xfer", "dtn", "dnt", "datatransfer"} & (combined | host_toks)):
         return "transfer"
-    if {"visualization", "visual", "viz", "vis"} & combined:
+    if {"visualization", "visual", "viz", "vis", "srd"} & combined:
         return "visualization"
-    if {"bigmem", "highmem", "hmem", "largemem"} & combined:
+    if {"bigmem", "highmem", "hmem", "largemem", "lm"} & combined:
         return "bigmem"
 
     if nodetype_toks:
         return _tokenize(nodetype)[0]
+    if gres_toks_list:
+        return gres_toks_list[0]
     return "compute"
 
 
-def classify_node(host: str, nodetype: str, partition: str = "") -> str:
-    node_type = resolve_node_type(host, nodetype, partition)
+def classify_node(host: str, nodetype: str, partition: str = "", gres: str = "") -> str:
+    node_type = resolve_node_type(host, nodetype, partition, gres)
     if node_type in {"transfer", "visualization", "bigmem"}:
         return node_type
     return "compute"
 
 
 def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
+    fmt_with_gres = "%N|%T|%P|%f|%G"
+    fmt_legacy = "%N|%T|%P|%f"
     try:
-        p = run(["sinfo", "-N", "-h", "-o", "%N|%T|%P|%f"], timeout=120)
+        p = run(["sinfo", "-N", "-h", "-o", fmt_with_gres], timeout=120)
     except FileNotFoundError:
         return [], [], {}
 
+    has_gres = True
     if p.returncode != 0:
-        return [], [], {}
+        p = run(["sinfo", "-N", "-h", "-o", fmt_legacy], timeout=120)
+        has_gres = False
+        if p.returncode != 0:
+            return [], [], {}
 
     inv: Dict[str, Dict[str, str]] = {}
     state_by_node: Dict[str, Set[str]] = {}
     partition_by_node: Dict[str, Set[str]] = {}
     features_by_node: Dict[str, Set[str]] = {}
+    gres_by_node: Dict[str, Set[str]] = {}
     class_by_node: Dict[str, str] = {}
     nodetype_by_node: Dict[str, str] = {}
     for line in p.stdout.splitlines():
         line = line.strip()
         if not line or "|" not in line:
             continue
-        parts = line.split("|", 3)
-        if len(parts) != 4:
-            continue
-        node_raw, state_raw, partition_raw, features_raw = parts
+        if has_gres:
+            parts = line.split("|", 4)
+            if len(parts) != 5:
+                continue
+            node_raw, state_raw, partition_raw, features_raw, gres_raw = parts
+        else:
+            parts = line.split("|", 3)
+            if len(parts) != 4:
+                continue
+            node_raw, state_raw, partition_raw, features_raw = parts
+            gres_raw = ""
         node = short_hostname(node_raw.strip())
         state = state_raw.strip().lower()
         partition = partition_raw.strip().replace("*", "")
         nodetype = _nodetype_from_features(features_raw)
-        node_type = resolve_node_type(node, nodetype, partition)
-        node_class = classify_node(node, nodetype, partition)
+        node_type = resolve_node_type(node, nodetype, partition, gres_raw)
+        node_class = classify_node(node, nodetype, partition, gres_raw)
         if not nodetype:
             nodetype = node_type
 
@@ -103,6 +129,9 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
         feature = features_raw.strip()
         if feature and feature != "(null)":
             features_by_node.setdefault(node, set()).add(feature)
+        gres = gres_raw.strip()
+        if gres and gres != "(null)":
+            gres_by_node.setdefault(node, set()).add(gres)
 
         prev_class = class_by_node.get(node, "")
         if prev_class == "transfer" or node_class == "transfer":
@@ -124,6 +153,7 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
         states = sorted(state_by_node.get(node, set()))
         partitions = sorted(partition_by_node.get(node, set()))
         features = sorted(features_by_node.get(node, set()))
+        gresses = sorted(gres_by_node.get(node, set()))
 
         inv[node] = {
             "state": ",".join(states),
@@ -131,6 +161,7 @@ def slurm_inventory() -> Tuple[List[str], List[str], Dict[str, Dict[str, str]]]:
             "resources_available.compute": compute_flag,
             "scheduler.partition": ",".join(partitions),
             "scheduler.features": ",".join(features),
+            "scheduler.gres": ",".join(gresses),
         }
 
     all_nodes = sorted(inv.keys())
@@ -151,7 +182,8 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
         st = meta.get("state", "")
         nodetype = meta.get("resources_available.nodetype", "")
         partition = meta.get("scheduler.partition", "")
-        nclass = classify_node(n, nodetype, partition)
+        gres = meta.get("scheduler.gres", "")
+        nclass = classify_node(n, nodetype, partition, gres)
         compute_flag = meta.get("resources_available.compute", "").strip()
 
         if compute_flag_only:
@@ -169,7 +201,8 @@ def select_compute_nodes(inv: Dict[str, Dict[str, str]], *, online_only: bool, c
             st = meta.get("state", "")
             nodetype = meta.get("resources_available.nodetype", "")
             partition = meta.get("scheduler.partition", "")
-            nclass = classify_node(n, nodetype, partition)
+            gres = meta.get("scheduler.gres", "")
+            nclass = classify_node(n, nodetype, partition, gres)
             skipped.append((n, "offline_or_down", st, nclass, nodetype))
 
     seen = set()

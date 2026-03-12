@@ -16,6 +16,8 @@ class TestSlurmStateAndClass(unittest.TestCase):
         self.assertEqual(classify_node("dtn01", "compute"), "transfer")
         self.assertEqual(classify_node("jean-dtn01", "", "transfer"), "transfer")
         self.assertEqual(classify_node("jean-v01", "", "viz"), "visualization")
+        self.assertEqual(classify_node("jean-v01", "", "", "srd:1"), "visualization")
+        self.assertEqual(classify_node("jean-lm01", "", "", "lm:1"), "bigmem")
         self.assertEqual(classify_node("node01", "transfer"), "transfer")
         self.assertEqual(classify_node("node01", "compute"), "compute")
 
@@ -23,6 +25,9 @@ class TestSlurmStateAndClass(unittest.TestCase):
         self.assertEqual(resolve_node_type("jean675", "aiml", "standard,interactive"), "aiml")
         self.assertEqual(resolve_node_type("jean675", "", "high,debug"), "compute")
         self.assertEqual(resolve_node_type("jean-dtn01", "", "transfer"), "transfer")
+        self.assertEqual(resolve_node_type("jean-v01", "", "interactive", "srd:1"), "visualization")
+        self.assertEqual(resolve_node_type("jean-lm01", "", "standard", "lm:1"), "bigmem")
+        self.assertEqual(resolve_node_type("jean-hp01", "", "standard", "highperf:1"), "highperf")
 
 
 class TestSlurmSelection(unittest.TestCase):
@@ -58,8 +63,8 @@ class TestSlurmSelection(unittest.TestCase):
 
     def test_inventory_fills_missing_nodetype_from_class(self) -> None:
         raw = "\n".join([
-            "node001|idle|compute|(null)",
-            "dtn01|idle|transfer|(null)",
+            "node001|idle|compute|(null)|(null)",
+            "dtn01|idle|transfer|(null)|(null)",
         ])
         with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
             _, _, inv = slurm_inventory()
@@ -69,9 +74,10 @@ class TestSlurmSelection(unittest.TestCase):
 
     def test_inventory_aggregates_partitions_and_marks_transfer(self) -> None:
         raw = "\n".join([
-            "jean675|allocated|background|(null)",
-            "jean675|allocated|standard*|(null)",
-            "jean-dtn01|idle|transfer|(null)",
+            "jean675|allocated|background|(null)|(null)",
+            "jean675|allocated|standard*|(null)|(null)",
+            "jean-dtn01|idle|transfer|(null)|(null)",
+            "jean-v01|idle|interactive|(null)|srd:1",
         ])
         with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
             _, _, inv = slurm_inventory()
@@ -80,6 +86,17 @@ class TestSlurmSelection(unittest.TestCase):
         self.assertEqual(inv["jean-dtn01"]["resources_available.nodetype"], "transfer")
         self.assertEqual(inv["jean-dtn01"]["resources_available.compute"], "0")
         self.assertEqual(inv["jean675"]["scheduler.partition"], "background,standard")
+        self.assertEqual(inv["jean-v01"]["resources_available.nodetype"], "visualization")
+        self.assertEqual(inv["jean-v01"]["scheduler.gres"], "srd:1")
+
+    def test_inventory_falls_back_when_gres_format_unavailable(self) -> None:
+        first = SimpleNamespace(returncode=1, stdout="", stderr="bad format")
+        second = SimpleNamespace(returncode=0, stdout="node001|idle|standard|(null)", stderr="")
+        with patch("slurm.run", side_effect=[first, second]):
+            _, _, inv = slurm_inventory()
+
+        self.assertIn("node001", inv)
+        self.assertEqual(inv["node001"].get("scheduler.gres", ""), "")
 
 
 if __name__ == "__main__":
