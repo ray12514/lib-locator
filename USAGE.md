@@ -83,6 +83,17 @@ Slurm compute-only sweep:
 ./libsweep --scheduler slurm --lib libjpeg --scope compute --workers 32
 ```
 
+Discrepancy-triggered follow-up rundown (representative flagged nodes only):
+
+```bash
+./libsweep \
+  --lib libjpeg \
+  --scope all \
+  --login-auto \
+  --discrepancy-rundown \
+  --discrepancy-rundown-workers 8
+```
+
 PBS compute-only sweep:
 
 ```bash
@@ -129,9 +140,11 @@ Execution and SSH:
 - `--workers`: parallel SSH fanout workers
 - `--ssh-timeout`: per-node timeout (seconds)
 - `--retries`: retry count for transient SSH failures
+- `--discrepancy-rundown` / `--no-discrepancy-rundown`: on inconsistency/missing, run lightweight all-lib manifest comparison on representative flagged nodes
+- `--discrepancy-rundown-workers`: worker pool size for follow-up rundown scan
 - `--ssh-hostkey {accept-new,no,yes}`
 - `--ssh-known-hosts`: override known_hosts path
-- `--ssh-control-master` / `--no-ssh-control-master`: enable/disable OpenSSH connection sharing (default enabled)
+- `--ssh-control-master` / `--no-ssh-control-master`: enable/disable OpenSSH connection sharing (default disabled)
 - `--remote-low-priority` / `--no-remote-low-priority`: run remote probes with `nice -n 19` (default enabled)
 
 Output and diagnostics:
@@ -166,6 +179,8 @@ Optional outputs:
 - `*_compute_<lib>_inconsistent.txt`
 - `*_compute_<lib>_missing.txt`
 - `*_compute_<lib>_errors_<kind>.txt`
+- `*_rundown_discrepancies.csv` (if `--discrepancy-rundown`)
+- `*_rundown_nodes.txt` (if `--discrepancy-rundown`)
 - `*_summary.json` (if `--write-json-summary`)
 
 ## Exit codes (automation friendly)

@@ -15,6 +15,9 @@ Now supports PBS and Slurm scheduler inventory.
   - `*_compute.csv`
   - `*_report.txt`
   - `*_<scheduler>_skipped.txt` (down/offline/non-compute)
+  - Optional discrepancy rundown files:
+    - `*_rundown_discrepancies.csv`
+    - `*_rundown_nodes.txt`
   - Optional node lists (inconsistent/missing/errors by kind)
 
 For full documentation, see `USAGE.md`.
@@ -94,6 +97,17 @@ Example:
   --scope compute \
   --workers 32 \
   --out-prefix jpeg_slurm
+```
+
+### Discrepancy-triggered standard-lib rundown
+```
+/shared/tools/lib_locator/libsweep \
+  --lib libjpeg \
+  --scope all \
+  --login-auto \
+  --discrepancy-rundown \
+  --discrepancy-rundown-workers 8 \
+  --out-prefix jpeg_with_rundown
 ```
 
 ### Show usage examples

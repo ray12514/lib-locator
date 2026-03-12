@@ -152,3 +152,52 @@ def build_report(
         lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+def build_rundown_section(
+    *,
+    enabled: bool,
+    triggered: bool,
+    reference_node: str,
+    reference_role: str,
+    scanned_nodes: List[Dict],
+    discrepancy_rows: List[Dict],
+    discrepancy_csv: str,
+    nodes_txt: str,
+) -> str:
+    if not enabled:
+        return ""
+
+    lines: List[str] = []
+    lines.append("=== discrepancy_rundown ===")
+    if not triggered:
+        lines.append("Status: enabled but not triggered (no inconsistent/missing rows)")
+        if nodes_txt:
+            lines.append(f"Nodes file: {os.path.basename(nodes_txt)}")
+        lines.append("")
+        return "\n".join(lines) + "\n"
+
+    lines.append("Status: triggered")
+    lines.append(f"Reference node: {reference_node or '(none)'} ({reference_role or 'n/a'})")
+
+    scanned = [r for r in scanned_nodes if r.get("status") == "scanned"]
+    errors = [r for r in scanned_nodes if r.get("status") == "error"]
+    lines.append(f"Scanned nodes: {len(scanned)}   Scan errors: {len(errors)}")
+
+    if discrepancy_rows:
+        by_kind = Counter(r.get("discrepancy_kind", "unknown") for r in discrepancy_rows)
+        lines.append(f"Discrepancies found: {len(discrepancy_rows)}")
+        lines.append("By kind: " + ", ".join(f"{k}:{v}" for k, v in by_kind.most_common()))
+    else:
+        lines.append("Discrepancies found: 0")
+
+    if discrepancy_csv:
+        lines.append(f"Discrepancy CSV: {os.path.basename(discrepancy_csv)}")
+    if nodes_txt:
+        lines.append(f"Nodes file: {os.path.basename(nodes_txt)}")
+
+    if errors:
+        lines.append("Scan error sample: " + sample([str(r.get("node", "")) for r in errors if r.get("node")]))
+
+    lines.append("")
+    return "\n".join(lines) + "\n"

@@ -36,6 +36,123 @@ def pinned_major_from_query(lib_query: str) -> Optional[int]:
     m = re.search(r"\.so\.(\d+)", lib_query)
     return int(m.group(1)) if m else None
 
+
+def _lib_root_from_name(name: str) -> str:
+    base = os.path.basename(name)
+    if not base.startswith("lib") or ".so" not in base:
+        return ""
+    return base.split(".so", 1)[0]
+
+
+def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
+    import glob
+    import subprocess
+
+    dirs = DEFAULT_DIR_GLOBS + extra_dirs
+
+    def safe_run(cmd: List[str]):
+        try:
+            p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+            return p.returncode, p.stdout, p.stderr
+        except FileNotFoundError:
+            return 127, "", "not found"
+
+    def ldconfig_paths_all() -> List[Tuple[str, str]]:
+        if no_ldconfig:
+            return []
+        rc, out, _ = safe_run(["ldconfig", "-p"])
+        if rc != 0 or not out:
+            return []
+        pairs: List[Tuple[str, str]] = []
+        seen = set()
+        for line in out.splitlines():
+            line = line.strip()
+            if "=>" not in line:
+                continue
+            left, right = line.split("=>", 1)
+            libname = left.split()[0].strip()
+            root = _lib_root_from_name(libname)
+            path = right.strip().split()[0]
+            if not root or not path:
+                continue
+            key = (root, path)
+            if key in seen:
+                continue
+            seen.add(key)
+            pairs.append(key)
+        return pairs
+
+    def fs_paths_all() -> List[Tuple[str, str]]:
+        pairs: List[Tuple[str, str]] = []
+        seen = set()
+        for dglob in dirs:
+            for base in glob.glob(dglob):
+                patterns = [
+                    os.path.join(base.rstrip("/"), "lib*.so*"),
+                    os.path.join(base.rstrip("/"), "*", "lib*.so*"),
+                ]
+                for pat in patterns:
+                    for path in glob.glob(pat):
+                        root = _lib_root_from_name(path)
+                        if not root:
+                            continue
+                        key = (root, path)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        pairs.append(key)
+        return pairs
+
+    by_root: Dict[str, Dict[str, object]] = {}
+    seen_pairs = set()
+
+    for root, path in ldconfig_paths_all() + fs_paths_all():
+        if (root, path) in seen_pairs:
+            continue
+        seen_pairs.add((root, path))
+
+        tgt = os.path.realpath(path)
+        pbase = os.path.basename(path)
+        tbase = os.path.basename(tgt)
+
+        entry = by_root.setdefault(
+            root,
+            {
+                "majors": set(),
+                "versions": set(),
+                "targets": set(),
+                "variants_count": 0,
+            },
+        )
+        entry["variants_count"] = int(entry["variants_count"]) + 1
+
+        maj = major_from_text(tbase) or major_from_text(pbase)
+        if maj is not None:
+            entry["majors"].add(int(maj))
+
+        ver = version_suffix(tbase) or version_suffix(pbase)
+        if ver:
+            entry["versions"].add(ver)
+
+        if tbase:
+            entry["targets"].add(tbase)
+
+    out = {}
+    for root in sorted(by_root.keys()):
+        e = by_root[root]
+        out[root] = {
+            "majors": sorted(e["majors"]),
+            "versions": sorted(e["versions"]),
+            "targets": sorted(e["targets"]),
+            "variants_count": int(e["variants_count"]),
+        }
+
+    return {
+        "node": os.uname().nodename.split(".", 1)[0],
+        "manifest": out,
+        "manifest_lib_count": len(out),
+    }
+
 def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict:
     import glob
     import subprocess

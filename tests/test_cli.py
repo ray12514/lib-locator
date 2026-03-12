@@ -1,6 +1,14 @@
 import unittest
 
-from cli import clamp_workers, classify_scheduler_node, normalize_node_type, resolve_scheduler_node_type
+from cli import (
+    build_discrepancy_representatives,
+    clamp_workers,
+    classify_scheduler_node,
+    compare_rundown_manifests,
+    normalize_node_type,
+    resolve_scheduler_node_type,
+    select_rundown_reference_node,
+)
 
 
 class TestCliHelpers(unittest.TestCase):
@@ -84,6 +92,53 @@ class TestCliHelpers(unittest.TestCase):
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean675", slurm_feature), "aiml")
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean675", slurm_generic_partition), "compute")
         self.assertEqual(resolve_scheduler_node_type("slurm", "jean-dtn01", slurm_transfer_partition), "transfer")
+
+    def test_build_discrepancy_representatives(self) -> None:
+        rows = [
+            {"node": "n1", "lib_query": "liba", "result": "inconsistent", "found_majors": "1", "missing_required_majors": "2"},
+            {"node": "n2", "lib_query": "liba", "result": "inconsistent", "found_majors": "1", "missing_required_majors": "2"},
+            {"node": "n3", "lib_query": "liba", "result": "missing", "found_majors": "", "missing_required_majors": "2"},
+            {"node": "n4", "lib_query": "liba", "result": "consistent", "found_majors": "2", "missing_required_majors": ""},
+        ]
+        reps = build_discrepancy_representatives(rows)
+        self.assertEqual(len(reps), 2)
+        by_result = {r["result"]: r for r in reps}
+        self.assertEqual(by_result["inconsistent"]["node"], "n1")
+        self.assertEqual(by_result["inconsistent"]["group_size"], 2)
+        self.assertEqual(by_result["missing"]["node"], "n3")
+
+    def test_select_rundown_reference_node(self) -> None:
+        login_rows = [
+            {"node": "login02", "result": "observed"},
+            {"node": "login01", "result": "observed"},
+        ]
+        compute_rows = [
+            {"node": "c1", "result": "consistent"},
+            {"node": "c2", "result": "inconsistent"},
+        ]
+        node, role = select_rundown_reference_node(login_rows, compute_rows, {"login01"})
+        self.assertEqual((node, role), ("login02", "login"))
+
+    def test_compare_rundown_manifests(self) -> None:
+        reference = {
+            "liba": {"majors": [1], "versions": ["1.0"], "variants_count": 2},
+            "libb": {"majors": [2], "versions": ["2.1"], "variants_count": 1},
+        }
+        node_manifest = {
+            "liba": {"majors": [1], "versions": ["1.1"], "variants_count": 1},
+            "libc": {"majors": [3], "versions": ["3.0"], "variants_count": 1},
+        }
+        trigger = {
+            "lib_query": "libz",
+            "result": "inconsistent",
+            "found_majors": "1",
+            "missing_required_majors": "2",
+        }
+        rows = compare_rundown_manifests("login01", reference, "c2", node_manifest, trigger)
+        kinds = {(r["lib_root"], r["discrepancy_kind"]) for r in rows}
+        self.assertIn(("liba", "versions_diff"), kinds)
+        self.assertIn(("libb", "missing_on_node"), kinds)
+        self.assertIn(("libc", "extra_on_node"), kinds)
 
 
 if __name__ == "__main__":
