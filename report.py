@@ -12,7 +12,7 @@ def sample(nodes: List[str], limit: int = 25) -> str:
         return ", ".join(nodes)
     return ", ".join(nodes[:limit]) + f", ... (+{len(nodes)-limit} more)"
 
-def write_pbs_skipped(path: str, skipped: List[Tuple[str,str,str,str,str]]) -> None:
+def write_scheduler_skipped(path: str, skipped: List[Tuple[str,str,str,str,str]]) -> None:
     with open(path, "w", encoding="utf-8") as f:
         f.write("node\treason\tstate\tnode_class\tpbs_nodetype\n")
         seen = set()

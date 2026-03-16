@@ -1,8 +1,17 @@
 import os
 import re
+import subprocess
 from typing import Dict, List, Optional, Set, Tuple
 
 DEFAULT_DIR_GLOBS = ["/lib*", "/usr/lib*", "/usr/local/lib*", "/opt/*/lib*"]
+
+
+def _safe_run(cmd: List[str]):
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+        return p.returncode, p.stdout, p.stderr
+    except FileNotFoundError:
+        return 127, "", "not found"
 
 def normalize_root_and_prefix(lib_query: str) -> Tuple[str, str, Optional[int]]:
     q = lib_query.strip()
@@ -46,21 +55,13 @@ def _lib_root_from_name(name: str) -> str:
 
 def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
     import glob
-    import subprocess
 
     dirs = DEFAULT_DIR_GLOBS + extra_dirs
-
-    def safe_run(cmd: List[str]):
-        try:
-            p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-            return p.returncode, p.stdout, p.stderr
-        except FileNotFoundError:
-            return 127, "", "not found"
 
     def ldconfig_paths_all() -> List[Tuple[str, str]]:
         if no_ldconfig:
             return []
-        rc, out, _ = safe_run(["ldconfig", "-p"])
+        rc, out, _ = _safe_run(["ldconfig", "-p"])
         if rc != 0 or not out:
             return []
         pairs: List[Tuple[str, str]] = []
@@ -155,22 +156,14 @@ def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
 
 def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict:
     import glob
-    import subprocess
 
     root, prefix, pinned_major = normalize_root_and_prefix(lib_query)
     dirs = DEFAULT_DIR_GLOBS + extra_dirs
 
-    def safe_run(cmd: List[str]):
-        try:
-            p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
-            return p.returncode, p.stdout, p.stderr
-        except FileNotFoundError:
-            return 127, "", "not found"
-
     def ldconfig_paths():
         if no_ldconfig:
             return []
-        rc, out, _ = safe_run(["ldconfig", "-p"])
+        rc, out, _ = _safe_run(["ldconfig", "-p"])
         if rc != 0 or not out:
             return []
         paths = []
@@ -198,7 +191,7 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
     def soname_of(path: str) -> str:
         if path in soname_cache:
             return soname_cache[path]
-        rc, out, _ = safe_run(["readelf", "-d", path])
+        rc, out, _ = _safe_run(["readelf", "-d", path])
         if rc == 0 and out:
             for line in out.splitlines():
                 if "SONAME" in line:
@@ -206,7 +199,7 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
                     if m:
                         soname_cache[path] = m.group(1)
                         return soname_cache[path]
-        rc, out, _ = safe_run(["objdump", "-p", path])
+        rc, out, _ = _safe_run(["objdump", "-p", path])
         if rc == 0 and out:
             for line in out.splitlines():
                 if line.strip().startswith("SONAME"):

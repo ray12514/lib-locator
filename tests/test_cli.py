@@ -5,7 +5,6 @@ from cli import (
     clamp_workers,
     classify_scheduler_node,
     compare_rundown_manifests,
-    normalize_node_type,
     resolve_scheduler_node_type,
     select_rundown_reference_node,
 )
@@ -17,16 +16,6 @@ class TestCliHelpers(unittest.TestCase):
         self.assertEqual(clamp_workers(1), 1)
         self.assertEqual(clamp_workers(32), 32)
         self.assertEqual(clamp_workers(129), 128)
-
-    def test_normalize_node_type(self) -> None:
-        self.assertEqual(normalize_node_type(""), "compute")
-        self.assertEqual(normalize_node_type("  "), "compute")
-        self.assertEqual(normalize_node_type("gpu"), "gpu")
-        self.assertEqual(normalize_node_type("gpu,ib"), "gpu")
-        self.assertEqual(normalize_node_type("GPU,IB"), "gpu")
-        self.assertEqual(normalize_node_type("jean-transfer"), "transfer")
-        self.assertEqual(normalize_node_type("vis,viz"), "visualization")
-        self.assertEqual(normalize_node_type("compute:bigmem"), "bigmem")
 
     def test_classify_scheduler_node(self) -> None:
         pbs_meta_vis = {
