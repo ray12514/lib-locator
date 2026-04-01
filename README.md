@@ -22,52 +22,41 @@ Now supports PBS and Slurm scheduler inventory.
 
 For full documentation, see `USAGE.md`.
 
-## Install (no pip)
-Place this project directory on a shared path visible to login/compute nodes.
+## Install
 
-Use the included `libsweep` launcher from this directory:
-
+**pip install (recommended):**
 ```bash
-./libsweep --help
+pip install /shared/tools/lib_locator
+# or editable/dev mode:
+pip install -e /shared/tools/lib_locator
 ```
 
-Optional: add it to your PATH as a command.
-
-User-local install:
-
+After install, the `libsweep` command is available directly:
 ```bash
-mkdir -p ~/.local/bin
-ln -sf /shared/tools/lib_locator/libsweep ~/.local/bin/libsweep
+libsweep --help
 ```
 
-System-wide install:
-
+**Without installing** (run from the project directory):
 ```bash
-sudo ln -sf /shared/tools/lib_locator/libsweep /usr/local/bin/libsweep
+python3 -m libsweep --help
 ```
 
-Example:
+For shared HPC clusters, install once on the shared filesystem so all nodes can reach it:
+```bash
+pip install --prefix /shared/tools/lib_locator_install /shared/tools/lib_locator
 ```
-/shared/tools/lib_locator/
-  lib_sweep.py
-  cli.py
-  probe.py
-  pbs.py
-  sshfanout.py
-  baseline.py
-  report.py
-```
+Then ensure `/shared/tools/lib_locator_install/lib/pythonX.Y/site-packages` is on `PYTHONPATH` on all nodes.
 
 ## Example runs
 
 ### Dry run (no SSH)
 ```
-/shared/tools/lib_locator/libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --dry-run
+libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --dry-run
 ```
 
 ### Sweep all (login + compute), require SONAME major 62
 ```
-/shared/tools/lib_locator/libsweep \
+libsweep \
   --lib libjpeg.so.62 \
   --scope all \
   --login-auto \
@@ -80,7 +69,7 @@ Example:
 
 ### Inventory only (no compatibility judgement)
 ```
-/shared/tools/lib_locator/libsweep \
+libsweep \
   --lib libjpeg \
   --scope all \
   --login-auto \
@@ -91,7 +80,7 @@ Example:
 
 ### Slurm compute sweep
 ```
-/shared/tools/lib_locator/libsweep \
+libsweep \
   --scheduler slurm \
   --lib libjpeg \
   --scope compute \
@@ -101,7 +90,7 @@ Example:
 
 ### Discrepancy-triggered standard-lib rundown
 ```
-/shared/tools/lib_locator/libsweep \
+libsweep \
   --lib libjpeg \
   --scope all \
   --login-auto \
@@ -112,7 +101,7 @@ Example:
 
 ### Show usage examples
 ```
-/shared/tools/lib_locator/libsweep --examples --lib libjpeg
+libsweep --examples --lib libjpeg
 ```
 
 ## Notes
