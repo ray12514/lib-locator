@@ -1,6 +1,6 @@
 import unittest
 
-from baseline import compute_baseline_majors, majors_set_from_row
+from libsweep.baseline import compute_baseline_majors, majors_set_from_row
 
 
 class TestBaseline(unittest.TestCase):

@@ -1,6 +1,6 @@
 import unittest
 
-from sshfanout import classify_ssh_failure, default_ssh_config
+from libsweep.sshfanout import classify_ssh_failure, default_ssh_config
 
 
 class TestSSHFanout(unittest.TestCase):

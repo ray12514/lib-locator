@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from slurm import classify_node, resolve_node_type, select_compute_nodes, slurm_inventory, state_is_online
+from libsweep.slurm import classify_node, resolve_node_type, select_compute_nodes, slurm_inventory, state_is_online
 
 
 class TestSlurmStateAndClass(unittest.TestCase):
@@ -66,7 +66,7 @@ class TestSlurmSelection(unittest.TestCase):
             "node001|idle|compute|(null)|(null)",
             "dtn01|idle|transfer|(null)|(null)",
         ])
-        with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+        with patch("libsweep.slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
             _, _, inv = slurm_inventory()
 
         self.assertEqual(inv["node001"]["resources_available.nodetype"], "compute")
@@ -79,7 +79,7 @@ class TestSlurmSelection(unittest.TestCase):
             "jean-dtn01|idle|transfer|(null)|(null)",
             "jean-v01|idle|interactive|(null)|srd:1",
         ])
-        with patch("slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+        with patch("libsweep.slurm.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
             _, _, inv = slurm_inventory()
 
         self.assertEqual(inv["jean675"]["resources_available.compute"], "1")
@@ -92,7 +92,7 @@ class TestSlurmSelection(unittest.TestCase):
     def test_inventory_falls_back_when_gres_format_unavailable(self) -> None:
         first = SimpleNamespace(returncode=1, stdout="", stderr="bad format")
         second = SimpleNamespace(returncode=0, stdout="node001|idle|standard|(null)", stderr="")
-        with patch("slurm.run", side_effect=[first, second]):
+        with patch("libsweep.slurm.run", side_effect=[first, second]):
             _, _, inv = slurm_inventory()
 
         self.assertIn("node001", inv)

@@ -10,22 +10,22 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Dict, List, Set, Tuple
 
-from sshfanout import default_ssh_config, ssh_with_retries, short_hostname
-from pbs import (
+from .sshfanout import default_ssh_config, ssh_with_retries, short_hostname
+from .pbs import (
     classify_node as pbs_classify_node,
     pbs_inventory,
     resolve_node_type as pbs_resolve_node_type,
     select_compute_nodes as pbs_select_compute_nodes,
 )
-from slurm import (
+from .slurm import (
     classify_node as slurm_classify_node,
     resolve_node_type as slurm_resolve_node_type,
     select_compute_nodes as slurm_select_compute_nodes,
     slurm_inventory,
 )
-from probe import probe_node, probe_rundown
-from baseline import compute_baseline_majors
-from report import build_report, build_rundown_section, write_node_lists, write_scheduler_skipped
+from .probe import probe_node, probe_rundown
+from .baseline import compute_baseline_majors
+from .report import build_report, build_rundown_section, write_node_lists, write_scheduler_skipped
 
 
 EXAMPLES = """Examples:
@@ -473,7 +473,7 @@ def _discover_nodes(scope: str, active_scheduler: str, args, cfg):
 
 
 def _print_dry_run(scope, active_scheduler, cfg, args, ts, login_nodes, compute_nodes,
-                   scheduler_skipped, script_path, requested_workers, thread_stack_setting):
+                   scheduler_skipped, requested_workers, thread_stack_setting):
     print(f"DRY RUN {ts}")
     print(f"Scope: {scope}")
     print(f"Scheduler: {active_scheduler}")
@@ -489,7 +489,7 @@ def _print_dry_run(scope, active_scheduler, cfg, args, ts, login_nodes, compute_
     print(f"Compute nodes selected: {len(compute_nodes)} sample: {', '.join(compute_nodes[:20])}")
     print(f"Scheduler skipped: {len(scheduler_skipped)}")
     ex_node = login_nodes[0] if login_nodes else (compute_nodes[0] if compute_nodes else "<node>")
-    cmd = ["ssh", ex_node, args.remote_python, script_path, "--probe"]
+    cmd = ["ssh", ex_node, args.remote_python, "-m", "libsweep", "--probe"]
     for lib in args.lib:
         cmd += ["--lib", lib]
     print("Example probe command:")
@@ -497,7 +497,7 @@ def _print_dry_run(scope, active_scheduler, cfg, args, ts, login_nodes, compute_
 
 
 def _run_fanout(
-    login_nodes: List[str], compute_nodes: List[str], args, cfg, script_path: str
+    login_nodes: List[str], compute_nodes: List[str], args, cfg
 ) -> Tuple[List[Dict], List[Dict]]:
     """SSH fan-out to all login and compute nodes. Returns (ok_records, error_records)."""
 
@@ -505,7 +505,7 @@ def _run_fanout(
         argv = []
         if args.remote_low_priority:
             argv += ["nice", "-n", "19"]
-        argv += [args.remote_python, script_path, "--probe"]
+        argv += [args.remote_python, "-m", "libsweep", "--probe"]
         for lib in args.lib:
             argv += ["--lib", lib]
         for d in args.dirs:
@@ -726,7 +726,7 @@ def _build_rows(
 
 def _run_discrepancy_rundown(
     compute_rows: List[Dict], login_rows: List[Dict], rundown_enabled: bool,
-    args, cfg, script_path: str, out_prefix: str,
+    args, cfg, out_prefix: str,
 ) -> Dict:
     """Run the full-library manifest scan on representative flagged nodes.
 
@@ -801,7 +801,7 @@ def _run_discrepancy_rundown(
         argv = []
         if args.remote_low_priority:
             argv += ["nice", "-n", "19"]
-        argv += [args.remote_python, script_path, "--probe-rundown"]
+        argv += [args.remote_python, "-m", "libsweep", "--probe-rundown"]
         for d in args.dirs:
             argv += ["--dirs", d]
         if args.no_ldconfig:
@@ -1070,7 +1070,6 @@ def main():
     thread_stack_setting = configure_thread_stack_size()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_prefix = f"{args.out_prefix}_{ts}"
-    script_path = os.path.realpath(sys.argv[0])
 
     login_nodes, compute_nodes, node_inv, scheduler_skipped = _discover_nodes(scope, active_scheduler, args, cfg)
     compute_nodes = [n for n in compute_nodes if n not in set(login_nodes)]
@@ -1078,15 +1077,15 @@ def main():
     if args.dry_run:
         _print_dry_run(scope, active_scheduler, cfg, args, ts,
                        login_nodes, compute_nodes, scheduler_skipped,
-                       script_path, requested_workers, thread_stack_setting)
+                       requested_workers, thread_stack_setting)
         return
 
-    ok_records, error_records = _run_fanout(login_nodes, compute_nodes, args, cfg, script_path)
+    ok_records, error_records = _run_fanout(login_nodes, compute_nodes, args, cfg)
     login_rows, compute_rows, baselines = _build_rows(ok_records, error_records, args, node_inv, active_scheduler)
 
     rundown_enabled = bool(args.discrepancy_rundown and scope in ("compute", "all"))
     rundown = _run_discrepancy_rundown(
-        compute_rows, login_rows, rundown_enabled, args, cfg, script_path, out_prefix
+        compute_rows, login_rows, rundown_enabled, args, cfg, out_prefix
     )
 
     exit_code = _write_outputs(

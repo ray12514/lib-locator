@@ -1,7 +1,7 @@
 import re
 from typing import Dict, List, Set, Tuple
 
-from sshfanout import run, short_hostname
+from .sshfanout import run, short_hostname
 
 
 def _split_features(features: str) -> List[str]:

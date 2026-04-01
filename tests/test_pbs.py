@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from pbs import classify_node, parse_pbsnodes_a, pbs_inventory, resolve_node_type, select_compute_nodes, state_is_online
+from libsweep.pbs import classify_node, parse_pbsnodes_a, pbs_inventory, resolve_node_type, select_compute_nodes, state_is_online
 
 
 class TestPBSParsing(unittest.TestCase):
@@ -102,7 +102,7 @@ dtn01
     resources_available.compute = 0
 """.strip()
 
-        with patch("pbs.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
+        with patch("libsweep.pbs.run", return_value=SimpleNamespace(returncode=0, stdout=raw, stderr="")):
             _, _, inv = pbs_inventory()
 
         self.assertEqual(inv["node001"]["resources_available.nodetype"], "compute")

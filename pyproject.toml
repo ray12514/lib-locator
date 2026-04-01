@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "libsweep"
+version = "0.1.0"
+description = "HPC dynamic library inventory and compatibility sweep tool"
+requires-python = ">=3.6"
+readme = "README.md"
+
+[project.scripts]
+libsweep = "libsweep.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["libsweep"]

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from probe import normalize_root_and_prefix, pinned_major_from_query, probe_rundown
+from libsweep.probe import normalize_root_and_prefix, pinned_major_from_query, probe_rundown
 
 
 class TestProbeHelpers(unittest.TestCase):

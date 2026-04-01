@@ -1,6 +1,6 @@
 import re
 from typing import Dict, List, Set, Tuple
-from sshfanout import run, short_hostname
+from .sshfanout import run, short_hostname
 
 def parse_pbsnodes_a(output: str) -> Dict[str, Dict[str, str]]:
     inv: Dict[str, Dict[str, str]] = {}

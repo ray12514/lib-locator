@@ -1,6 +1,6 @@
 import unittest
 
-from report import build_rundown_section
+from libsweep.report import build_rundown_section
 
 
 class TestReportRundown(unittest.TestCase):

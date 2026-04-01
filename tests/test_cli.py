@@ -1,6 +1,6 @@
 import unittest
 
-from cli import (
+from libsweep.cli import (
     build_discrepancy_representatives,
     clamp_workers,
     classify_scheduler_node,
