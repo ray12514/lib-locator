@@ -5,20 +5,22 @@ A PBS-focused (for now) library inventory + compatibility sweep tool.
 Now supports PBS and Slurm scheduler inventory.
 
 ## What it does
-- Sweeps login nodes and/or compute nodes
-- Finds dynamic library variants for a query like:
-  - `libjpeg` (general inventory)
-  - `libjpeg.so.62` (pins SONAME major 62 as required)
-- Compares compute nodes against a baseline derived from login nodes (or a forced major)
-- Produces:
-  - `*_login.csv`
-  - `*_compute.csv`
-  - `*_report.txt`
-  - `*_<scheduler>_skipped.txt` (down/offline/non-compute)
-  - Optional discrepancy rundown files:
-    - `*_rundown_discrepancies.csv`
-    - `*_rundown_nodes.txt`
-  - Optional node lists (inconsistent/missing/errors by kind)
+
+**Library sweep** — find dynamic library (`.so`) variants across the cluster:
+- `--lib libjpeg` — general inventory of SONAME majors
+- `--lib libjpeg.so.62` — require SONAME major 62
+- Classifies each compute node as `consistent`, `inconsistent`, `missing`, or `unreachable`
+
+**Binary sweep** — locate executables and check version consistency:
+- `--binary python3 --binary mpirun` — check that named binaries are present and at the same version on every compute node as on login nodes
+- Reports path, version string, and consistent/inconsistent/missing per node
+
+Both modes produce:
+- `*_login.csv` / `*_compute.csv`
+- `*_report.txt`
+- `*_<scheduler>_skipped.txt` (down/offline/non-compute)
+- Optional discrepancy rundown: compares one flagged compute node against one good reference node (`*_rundown_discrepancies.csv`, `*_rundown_nodes.txt`)
+- Optional node lists (inconsistent/missing/errors by kind)
 
 For full documentation, see `USAGE.md`.
 
@@ -97,6 +99,23 @@ libsweep \
   --discrepancy-rundown \
   --discrepancy-rundown-workers 8 \
   --out-prefix jpeg_with_rundown
+```
+
+### Binary sweep — check python3 and mpirun on all compute nodes
+```
+libsweep \
+  --binary python3 \
+  --binary mpirun \
+  --scope all \
+  --login-auto \
+  --baseline-from login-consensus \
+  --workers 32 \
+  --out-prefix binaries_scan
+```
+
+### Binary sweep dry run
+```
+libsweep --binary python3 --scope all --login-auto --dry-run
 ```
 
 ### Show usage examples
