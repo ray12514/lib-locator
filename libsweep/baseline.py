@@ -65,3 +65,22 @@ def compute_baseline_majors(
         return inter
 
     return set()
+
+
+def compute_binary_baseline(
+    binary_query: str,
+    login_ok_rows: List[Dict],
+    baseline_from: str,
+    baseline_version_override: Optional[str],
+) -> str:
+    """Return the required version string for a binary (empty = any version accepted)."""
+    if baseline_version_override is not None:
+        return baseline_version_override
+    if baseline_from == "none" or not login_ok_rows:
+        return ""
+    present_rows = [r for r in login_ok_rows if r.get("present")]
+    if not present_rows:
+        return ""
+    versions = [str(r.get("version_string", "") or "") for r in present_rows]
+    most_common = Counter(versions).most_common(1)
+    return most_common[0][0] if most_common else ""

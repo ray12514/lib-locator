@@ -23,9 +23,12 @@ from .slurm import (
     select_compute_nodes as slurm_select_compute_nodes,
     slurm_inventory,
 )
-from .probe import probe_node, probe_rundown
-from .baseline import compute_baseline_majors
-from .report import build_report, build_rundown_section, write_node_lists, write_scheduler_skipped
+from .probe import probe_node, probe_rundown, probe_binary, probe_binary_rundown
+from .baseline import compute_baseline_majors, compute_binary_baseline
+from .report import (
+    build_report, build_rundown_section, write_node_lists, write_scheduler_skipped,
+    build_binary_report, write_binary_node_lists,
+)
 
 
 EXAMPLES = """Examples:
@@ -129,7 +132,7 @@ def write_csv(path: str, fieldnames: List[str], rows: List[Dict]) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fieldnames)
         w.writeheader()
-        for row in sorted(rows, key=lambda x: (x.get("lib_query", ""), x.get("node", ""))):
+        for row in sorted(rows, key=lambda x: (x.get("lib_query") or x.get("binary_query", ""), x.get("node", ""))):
             w.writerow({k: row.get(k, "") for k in fieldnames})
 
 
@@ -348,6 +351,47 @@ def compare_rundown_manifests(
     return rows
 
 
+def compare_binary_rundown_manifests(
+    reference_node: str, reference_manifest: Dict,
+    node: str, node_manifest: Dict,
+    trigger: Dict,
+) -> List[Dict]:
+    """Diff two binary manifests {name: {path}} and return discrepancy rows."""
+    rows: List[Dict] = []
+    names = sorted(set(reference_manifest.keys()) | set(node_manifest.keys()))
+    trigger_fields = {
+        "trigger_binary_query": trigger.get("binary_query", ""),
+        "trigger_result": trigger.get("result", ""),
+        "trigger_version_string": trigger.get("version_string", ""),
+        "trigger_required_version": trigger.get("required_version", ""),
+    }
+    for name in names:
+        ref = reference_manifest.get(name)
+        cur = node_manifest.get(name)
+        if ref is None:
+            rows.append(dict(
+                reference_node=reference_node, node=node, binary_name=name,
+                discrepancy_kind="extra_on_node",
+                reference_path="", node_path=(cur or {}).get("path", ""),
+                **trigger_fields,
+            ))
+        elif cur is None:
+            rows.append(dict(
+                reference_node=reference_node, node=node, binary_name=name,
+                discrepancy_kind="missing_on_node",
+                reference_path=(ref or {}).get("path", ""), node_path="",
+                **trigger_fields,
+            ))
+        elif ref.get("path") != cur.get("path"):
+            rows.append(dict(
+                reference_node=reference_node, node=node, binary_name=name,
+                discrepancy_kind="path_diff",
+                reference_path=ref.get("path", ""), node_path=cur.get("path", ""),
+                **trigger_fields,
+            ))
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # main() pipeline stages
 # ---------------------------------------------------------------------------
@@ -409,6 +453,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--probe-rundown", action="store_true")
+
+    # Binary locator
+    ap.add_argument("--binary", action="append", default=[],
+                    help="Repeatable. Binary name to locate (e.g. python3, mpirun)")
+    ap.add_argument("--binary-dirs", action="append", default=[],
+                    help="Extra directories to search for binaries (supplements PATH)")
+    ap.add_argument("--probe-binary", action="store_true")
+    ap.add_argument("--probe-binary-rundown", action="store_true")
 
     return ap
 
@@ -473,7 +525,7 @@ def _discover_nodes(scope: str, active_scheduler: str, args, cfg):
 
 
 def _print_dry_run(scope, active_scheduler, cfg, args, ts, login_nodes, compute_nodes,
-                   scheduler_skipped, requested_workers, thread_stack_setting):
+                   scheduler_skipped, requested_workers, thread_stack_setting, mode="library"):
     print(f"DRY RUN {ts}")
     print(f"Scope: {scope}")
     print(f"Scheduler: {active_scheduler}")
@@ -484,14 +536,22 @@ def _print_dry_run(scope, active_scheduler, cfg, args, ts, login_nodes, compute_
         f"Discrepancy rundown: {'enabled' if args.discrepancy_rundown else 'disabled'} "
         f"workers={clamp_workers(args.discrepancy_rundown_workers)}"
     )
-    print(f"Libraries: {args.lib}")
+    if mode == "binary":
+        print(f"Binaries: {args.binary}")
+    else:
+        print(f"Libraries: {args.lib}")
     print(f"Login nodes: {len(login_nodes)} sample: {', '.join(login_nodes[:20])}")
     print(f"Compute nodes selected: {len(compute_nodes)} sample: {', '.join(compute_nodes[:20])}")
     print(f"Scheduler skipped: {len(scheduler_skipped)}")
     ex_node = login_nodes[0] if login_nodes else (compute_nodes[0] if compute_nodes else "<node>")
-    cmd = ["ssh", ex_node, args.remote_python, "-m", "libsweep", "--probe"]
-    for lib in args.lib:
-        cmd += ["--lib", lib]
+    if mode == "binary":
+        cmd = ["ssh", ex_node, args.remote_python, "-m", "libsweep", "--probe-binary"]
+        for b in args.binary:
+            cmd += ["--binary", b]
+    else:
+        cmd = ["ssh", ex_node, args.remote_python, "-m", "libsweep", "--probe"]
+        for lib in args.lib:
+            cmd += ["--lib", lib]
     print("Example probe command:")
     print("  " + " ".join(cmd))
 
@@ -755,8 +815,13 @@ def _run_discrepancy_rundown(
     if not rundown_enabled:
         return result
 
-    reps = build_discrepancy_representatives(compute_rows)
-    if not reps:
+    # Pick the single first flagged node as the one bad node
+    flagged_nodes = sorted({
+        str(r.get("node", ""))
+        for r in compute_rows
+        if r.get("result") in ("inconsistent", "missing") and r.get("node")
+    })
+    if not flagged_nodes:
         result["nodes"].append({
             "node": "", "role": "", "status": "skipped",
             "note": "no inconsistent/missing rows found; discrepancy rundown not triggered",
@@ -764,20 +829,23 @@ def _run_discrepancy_rundown(
         return result
 
     result["triggered"] = True
-    rep_nodes = {r["node"] for r in reps}
-    ref_node, ref_role = select_rundown_reference_node(login_rows, compute_rows, rep_nodes)
+    bad_node = flagged_nodes[0]
+    trigger = next(
+        (r for r in compute_rows
+         if str(r.get("node", "")) == bad_node and r.get("result") in ("inconsistent", "missing")),
+        {"lib_query": "", "result": "", "found_majors": "", "missing_required_majors": ""},
+    )
+
+    ref_node, ref_role = select_rundown_reference_node(login_rows, compute_rows, {bad_node})
     result["reference_node"] = ref_node
     result["reference_role"] = ref_role
 
-    # Record planned scans
-    for rep in reps:
-        result["nodes"].append({
-            "node": rep["node"], "role": "compute", "status": "planned",
-            "note": (
-                f"trigger lib={rep.get('lib_query', '')} result={rep.get('result', '')} "
-                f"group_size={rep.get('group_size', 1)}"
-            ),
-        })
+    result["nodes"].append({
+        "node": bad_node, "role": "compute", "status": "planned",
+        "note": (
+            f"trigger lib={trigger.get('lib_query', '')} result={trigger.get('result', '')}"
+        ),
+    })
 
     if not ref_node:
         result["nodes"].append({
@@ -791,10 +859,10 @@ def _run_discrepancy_rundown(
         "status": "planned_reference", "note": "reference_manifest",
     })
 
-    # Build scan plan: reference node first, then one representative per flagged group
+    # Scan exactly two nodes: reference + the one bad node
     scan_plan: Dict[str, str] = {ref_node: ref_role}
-    for rep in reps:
-        scan_plan.setdefault(rep["node"], "compute")
+    if bad_node != ref_node:
+        scan_plan[bad_node] = "compute"
 
     def probe_full_manifest(node: str, role: str) -> Dict:
         """SSH to a node and collect its full shared-library manifest."""
@@ -862,26 +930,22 @@ def _run_discrepancy_rundown(
                     "note": f"{res.get('kind', 'error')}: {res.get('detail', '')}",
                 })
 
-    # Diff each flagged node's manifest against the reference
+    # Diff the one bad node's manifest against the reference
     ref_short = short_hostname(ref_node)
     ref_manifest = manifest_by_node.get(ref_short)
     if isinstance(ref_manifest, dict) and ref_manifest:
-        for rep in reps:
-            node = rep["node"]
-            if node == ref_short:
-                continue
-            node_manifest = manifest_by_node.get(node)
-            if not isinstance(node_manifest, dict) or not node_manifest:
-                continue
-            result["rows"].extend(
-                compare_rundown_manifests(
-                    reference_node=ref_short,
-                    reference_manifest=ref_manifest,
-                    node=node,
-                    node_manifest=node_manifest,
-                    trigger=rep,
+        if bad_node != ref_short:
+            node_manifest = manifest_by_node.get(bad_node)
+            if isinstance(node_manifest, dict) and node_manifest:
+                result["rows"].extend(
+                    compare_rundown_manifests(
+                        reference_node=ref_short,
+                        reference_manifest=ref_manifest,
+                        node=bad_node,
+                        node_manifest=node_manifest,
+                        trigger=trigger,
+                    )
                 )
-            )
     else:
         result["nodes"].append({
             "node": ref_short, "role": ref_role, "status": "error",
@@ -1022,6 +1086,443 @@ def _write_outputs(
 
 
 # ---------------------------------------------------------------------------
+# Binary pipeline stages
+# ---------------------------------------------------------------------------
+
+def _run_binary_fanout(
+    login_nodes: List[str], compute_nodes: List[str], args, cfg
+) -> Tuple[List[Dict], List[Dict]]:
+    """Binary sweep SSH fan-out. Returns (ok_records, error_records)."""
+
+    def sweep_node(node: str, role: str) -> List[Dict]:
+        argv = []
+        if args.remote_low_priority:
+            argv += ["nice", "-n", "19"]
+        argv += [args.remote_python, "-m", "libsweep", "--probe-binary"]
+        for b in args.binary:
+            argv += ["--binary", b]
+        for d in (args.binary_dirs or []):
+            argv += ["--binary-dirs", d]
+
+        p, kind = ssh_with_retries(node, argv, cfg, timeout=args.ssh_timeout, retries=args.retries)
+        node = short_hostname(node)
+
+        if p.returncode != 0:
+            status = "probe_error" if kind == "remote_exec_error" else "ssh_error"
+            detail = (p.stderr or "").strip()[:240]
+            if not detail and kind == "remote_exec_error":
+                detail = f"remote command exited with rc {p.returncode}"
+            return [{
+                "role": role, "node": node, "binary_query": b,
+                "status": status, "ssh_rc": str(p.returncode),
+                "ssh_error_kind": kind, "ssh_error_detail": detail,
+            } for b in args.binary]
+
+        recs = []
+        for s in json_lines_only(p.stdout):
+            try:
+                d = json.loads(s)
+                d["_role"] = role
+                recs.append(d)
+            except json.JSONDecodeError:
+                continue
+
+        by_q = {r.get("query"): r for r in recs if r.get("query")}
+        out = []
+        for b in args.binary:
+            r = by_q.get(b)
+            if r:
+                r["_role"] = role
+                out.append(r)
+            else:
+                out.append({
+                    "_role": role, "node": node, "query": b, "present": False,
+                    "path": "", "version_string": "", "version_rc": -1,
+                })
+        return out
+
+    ok_records: List[Dict] = []
+    error_records: List[Dict] = []
+
+    with ThreadPoolExecutor(max_workers=args.workers) as ex:
+        futs = {}
+        for n in login_nodes:
+            futs[ex.submit(sweep_node, n, "login")] = (short_hostname(n), "login")
+        for n in compute_nodes:
+            futs[ex.submit(sweep_node, n, "compute")] = (short_hostname(n), "compute")
+
+        for fut in as_completed(futs):
+            node_name, role = futs[fut]
+            try:
+                rows = fut.result()
+            except Exception as exn:
+                for b in args.binary:
+                    error_records.append({
+                        "role": role, "node": node_name, "binary_query": b,
+                        "status": "internal_error", "ssh_rc": "-1",
+                        "ssh_error_kind": "internal_error",
+                        "ssh_error_detail": str(exn)[:240],
+                    })
+                continue
+            for r in rows:
+                if r.get("status") in ("ssh_error", "probe_error"):
+                    error_records.append(r)
+                else:
+                    ok_records.append(r)
+
+    return ok_records, error_records
+
+
+def _build_binary_rows(
+    ok_records: List[Dict], error_records: List[Dict], args, node_inv: Dict, active_scheduler: str
+) -> Tuple[List[Dict], List[Dict], Dict[str, str]]:
+    """Build binary login rows, compute rows, and per-binary version baselines."""
+
+    login_rows: List[Dict] = []
+    login_ok_by_binary: Dict[str, List[Dict]] = {b: [] for b in args.binary}
+
+    for r in ok_records:
+        if r.get("_role") != "login":
+            continue
+        node = short_hostname(r.get("node", ""))
+        bq = r.get("query", "")
+        row = {
+            "node": node,
+            "node_type": "login",
+            "binary_query": bq,
+            "result": "observed",
+            "present": bool(r.get("present")),
+            "path": str(r.get("path", "") or ""),
+            "version_string": str(r.get("version_string", "") or ""),
+            "required_version": "",
+            "issue_detail": "",
+            "error_kind": "",
+            "error_detail": "",
+        }
+        login_rows.append(row)
+        if bq in login_ok_by_binary:
+            login_ok_by_binary[bq].append(row)
+
+    baselines: Dict[str, str] = {
+        b: compute_binary_baseline(b, login_ok_by_binary.get(b, []), args.baseline_from, None)
+        for b in args.binary
+    }
+
+    compute_rows: List[Dict] = []
+    for r in ok_records:
+        if r.get("_role") != "compute":
+            continue
+        node = short_hostname(r.get("node", ""))
+        bq = r.get("query", "")
+        meta = node_inv.get(node, {})
+        node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
+
+        present = bool(r.get("present"))
+        version_string = str(r.get("version_string", "") or "")
+        path = str(r.get("path", "") or "")
+        baseline = baselines.get(bq, "")
+
+        if not present:
+            result = "missing"
+            issue_detail = f"required_version={baseline or 'none'} found=none"
+        elif baseline and version_string != baseline:
+            result = "inconsistent"
+            issue_detail = f"required={baseline} found={version_string or '(unknown)'}"
+        else:
+            result = "consistent"
+            issue_detail = ""
+
+        compute_rows.append({
+            "node": node,
+            "node_type": node_type,
+            "binary_query": bq,
+            "result": result,
+            "present": present,
+            "path": path,
+            "version_string": version_string,
+            "required_version": baseline,
+            "issue_detail": issue_detail,
+            "error_kind": "",
+            "error_detail": "",
+        })
+
+    for e in error_records:
+        role = e.get("role", "compute")
+        node = short_hostname(e.get("node", ""))
+        bq = e.get("binary_query") or e.get("query", "")
+        meta = node_inv.get(node, {})
+        node_type = resolve_scheduler_node_type(active_scheduler, node, meta)
+
+        row = {
+            "node": node,
+            "node_type": "login" if role == "login" else node_type,
+            "binary_query": bq,
+            "result": "unreachable",
+            "present": False,
+            "path": "",
+            "version_string": "",
+            "required_version": "",
+            "issue_detail": e.get("ssh_error_kind", "ssh_error"),
+            "error_kind": e.get("ssh_error_kind", "ssh_error"),
+            "error_detail": e.get("ssh_error_detail", ""),
+        }
+        if role == "login":
+            login_rows.append(row)
+        else:
+            compute_rows.append(row)
+
+    return login_rows, compute_rows, baselines
+
+
+def _run_binary_discrepancy_rundown(
+    compute_rows: List[Dict], login_rows: List[Dict], rundown_enabled: bool,
+    args, cfg, out_prefix: str,
+) -> Dict:
+    """Full binary manifest scan on one flagged node vs one reference node."""
+    csv_path = f"{out_prefix}_binary_rundown_discrepancies.csv"
+    nodes_txt_path = f"{out_prefix}_binary_rundown_nodes.txt"
+
+    result: Dict = {
+        "enabled": rundown_enabled,
+        "triggered": False,
+        "reference_node": "",
+        "reference_role": "",
+        "rows": [],
+        "nodes": [],
+        "csv_path": csv_path,
+        "nodes_txt_path": nodes_txt_path,
+    }
+
+    if not rundown_enabled:
+        return result
+
+    flagged = sorted({
+        str(r.get("node", ""))
+        for r in compute_rows
+        if r.get("result") in ("inconsistent", "missing") and r.get("node")
+    })
+    if not flagged:
+        result["nodes"].append({
+            "node": "", "role": "", "status": "skipped",
+            "note": "no inconsistent/missing rows; binary rundown not triggered",
+        })
+        return result
+
+    result["triggered"] = True
+    bad_node = flagged[0]
+    trigger = next(
+        (r for r in compute_rows
+         if str(r.get("node", "")) == bad_node and r.get("result") in ("inconsistent", "missing")),
+        {"binary_query": "", "result": "", "version_string": "", "required_version": ""},
+    )
+
+    ref_node, ref_role = select_rundown_reference_node(login_rows, compute_rows, {bad_node})
+    result["reference_node"] = ref_node
+    result["reference_role"] = ref_role
+
+    result["nodes"].append({
+        "node": bad_node, "role": "compute", "status": "planned",
+        "note": f"trigger binary={trigger.get('binary_query', '')} result={trigger.get('result', '')}",
+    })
+
+    if not ref_node:
+        result["nodes"].append({
+            "node": "", "role": "", "status": "skipped",
+            "note": "no suitable reference node",
+        })
+        return result
+
+    result["nodes"].append({
+        "node": ref_node, "role": ref_role,
+        "status": "planned_reference", "note": "reference_manifest",
+    })
+
+    scan_plan: Dict[str, str] = {ref_node: ref_role}
+    if bad_node != ref_node:
+        scan_plan[bad_node] = "compute"
+
+    def probe_full_binary_manifest(node: str, role: str) -> Dict:
+        argv = []
+        if args.remote_low_priority:
+            argv += ["nice", "-n", "19"]
+        argv += [args.remote_python, "-m", "libsweep", "--probe-binary-rundown"]
+        for d in (args.binary_dirs or []):
+            argv += ["--binary-dirs", d]
+
+        p, kind = ssh_with_retries(node, argv, cfg, timeout=args.ssh_timeout, retries=args.retries)
+        short = short_hostname(node)
+        if p.returncode != 0:
+            return {"node": short, "role": role, "status": "error", "kind": kind,
+                    "detail": (p.stderr or "").strip()[:240], "manifest": {}}
+
+        payload = None
+        for s in json_lines_only(p.stdout):
+            try:
+                d = json.loads(s)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(d.get("manifest"), dict):
+                payload = d
+                break
+
+        if payload is None:
+            return {"node": short, "role": role, "status": "error", "kind": "parse_error",
+                    "detail": "probe-binary-rundown returned no manifest", "manifest": {}}
+
+        return {"node": short, "role": role, "status": "ok", "kind": "ok",
+                "detail": "", "manifest": payload.get("manifest", {})}
+
+    manifest_by_node: Dict[str, Dict] = {}
+    workers = max(1, min(clamp_workers(args.discrepancy_rundown_workers), len(scan_plan)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {
+            ex.submit(probe_full_binary_manifest, node, role): (node, role)
+            for node, role in scan_plan.items()
+        }
+        for fut in as_completed(futs):
+            node, role = futs[fut]
+            short = short_hostname(node)
+            try:
+                res = fut.result()
+            except Exception as exn:
+                result["nodes"].append({
+                    "node": short, "role": role, "status": "error",
+                    "note": f"internal_error: {str(exn)[:160]}",
+                })
+                continue
+            if res.get("status") == "ok":
+                manifest_by_node[short] = res["manifest"]
+                result["nodes"].append({
+                    "node": short, "role": role, "status": "scanned",
+                    "note": f"manifest_binary_count={len(res['manifest'])}",
+                })
+            else:
+                result["nodes"].append({
+                    "node": short, "role": role, "status": "error",
+                    "note": f"{res.get('kind', 'error')}: {res.get('detail', '')}",
+                })
+
+    ref_short = short_hostname(ref_node)
+    ref_manifest = manifest_by_node.get(ref_short)
+    if isinstance(ref_manifest, dict) and ref_manifest:
+        if bad_node != ref_short:
+            node_manifest = manifest_by_node.get(bad_node)
+            if isinstance(node_manifest, dict) and node_manifest:
+                result["rows"].extend(
+                    compare_binary_rundown_manifests(
+                        reference_node=ref_short,
+                        reference_manifest=ref_manifest,
+                        node=bad_node,
+                        node_manifest=node_manifest,
+                        trigger=trigger,
+                    )
+                )
+    else:
+        result["nodes"].append({
+            "node": ref_short, "role": ref_role, "status": "error",
+            "note": "reference_manifest_unavailable",
+        })
+
+    return result
+
+
+def _write_binary_outputs(
+    scope: str, active_scheduler: str, out_prefix: str, ts: str, args,
+    login_nodes: List[str], compute_nodes: List[str],
+    login_rows: List[Dict], compute_rows: List[Dict],
+    scheduler_skipped, baselines: Dict[str, str], rundown: Dict,
+) -> int:
+    """Write binary sweep output files and print summary. Returns exit code."""
+
+    login_csv = f"{out_prefix}_binary_login.csv"
+    compute_csv = f"{out_prefix}_binary_compute.csv"
+    report_txt = f"{out_prefix}_binary_report.txt"
+    skipped_txt = f"{out_prefix}_{active_scheduler}_skipped.txt"
+
+    binary_fields = [
+        "node", "node_type", "binary_query", "result", "issue_detail",
+        "present", "path", "version_string", "required_version",
+        "error_kind", "error_detail",
+    ]
+
+    if scope in ("login", "all"):
+        write_csv(login_csv, binary_fields, login_rows)
+    if scope in ("compute", "all"):
+        write_csv(compute_csv, binary_fields, compute_rows)
+
+    write_scheduler_skipped(skipped_txt, scheduler_skipped)
+
+    if rundown["enabled"]:
+        with open(rundown["nodes_txt_path"], "w", encoding="utf-8") as f:
+            f.write("node\trole\tstatus\tnote\n")
+            for r in rundown["nodes"]:
+                f.write(
+                    f"{r.get('node','')}\t{r.get('role','')}\t"
+                    f"{r.get('status','')}\t{r.get('note','')}\n"
+                )
+        if rundown["triggered"] and rundown["reference_node"]:
+            binary_rundown_fields = [
+                "reference_node", "node", "binary_name", "discrepancy_kind",
+                "reference_path", "node_path",
+                "trigger_binary_query", "trigger_result",
+                "trigger_version_string", "trigger_required_version",
+            ]
+            write_csv(rundown["csv_path"], binary_rundown_fields, rundown["rows"])
+
+    node_list_files: Dict[str, Dict[str, str]] = {}
+    if args.write_node_lists and scope in ("compute", "all"):
+        for b in args.binary:
+            node_list_files[b] = write_binary_node_lists(out_prefix, b, compute_rows)
+
+    report = build_binary_report(
+        ts=ts,
+        scope=scope,
+        scheduler=active_scheduler,
+        baseline_from=args.baseline_from,
+        workers=args.workers,
+        retries=args.retries,
+        login_nodes=len(login_nodes),
+        compute_nodes=len(compute_nodes),
+        scheduler_skipped_count=len(scheduler_skipped),
+        binaries=args.binary,
+        login_rows=login_rows,
+        compute_rows=compute_rows,
+        baselines=baselines,
+        node_list_files=node_list_files,
+    )
+    report += build_rundown_section(
+        enabled=rundown["enabled"],
+        triggered=rundown["triggered"],
+        reference_node=rundown["reference_node"],
+        reference_role=rundown["reference_role"],
+        scanned_nodes=rundown["nodes"],
+        discrepancy_rows=rundown["rows"],
+        discrepancy_csv=rundown["csv_path"] if rundown["triggered"] and rundown["reference_node"] else "",
+        nodes_txt=rundown["nodes_txt_path"] if rundown["enabled"] else "",
+    )
+    with open(report_txt, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    print(f"Wrote binary login CSV:   {login_csv}" if scope in ("login", "all") else "Login scope disabled")
+    print(f"Wrote binary compute CSV: {compute_csv}" if scope in ("compute", "all") else "Compute scope disabled")
+    print(f"Wrote report:      {report_txt}")
+    print(f"Wrote scheduler skipped: {skipped_txt}")
+    if rundown["enabled"]:
+        if rundown["triggered"] and rundown["reference_node"]:
+            print(f"Wrote binary discrepancy rundown CSV: {rundown['csv_path']}")
+        print(f"Wrote binary discrepancy rundown nodes: {rundown['nodes_txt_path']}")
+
+    total_inconsistent = sum(1 for r in compute_rows if r.get("result") == "inconsistent")
+    total_missing = sum(1 for r in compute_rows if r.get("result") == "missing")
+    total_errors = sum(1 for r in compute_rows if r.get("result") == "unreachable")
+    if total_errors > 0:
+        return 2
+    if (total_inconsistent + total_missing) > 0:
+        return 1
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1033,8 +1534,12 @@ def main():
         print(EXAMPLES)
         return
 
-    if not args.lib and not args.probe_rundown:
-        ap.error("--lib is required unless --examples is used")
+    if args.lib and args.binary:
+        ap.error("--lib and --binary cannot be used together in the same sweep")
+    if (not args.lib and not args.binary
+            and not args.probe_rundown and not args.probe_binary
+            and not args.probe_binary_rundown):
+        ap.error("--lib or --binary is required unless --examples is used")
 
     requested_workers = args.workers
     args.workers = clamp_workers(args.workers)
@@ -1060,6 +1565,21 @@ def main():
             print(json.dumps(r, sort_keys=True))
         return
 
+    if args.probe_binary_rundown:
+        ts = datetime.now(timezone.utc).isoformat()
+        r = probe_binary_rundown(args.binary_dirs or [])
+        r["ts_utc"] = ts
+        print(json.dumps(r, sort_keys=True))
+        return
+
+    if args.probe_binary:
+        ts = datetime.now(timezone.utc).isoformat()
+        for b in (args.binary or []):
+            r = probe_binary(b, args.binary_dirs or [])
+            r["ts_utc"] = ts
+            print(json.dumps(r, sort_keys=True))
+        return
+
     # Orchestration
     in_scheduler_job = any(
         k in os.environ for k in ("PBS_JOBID", "PBS_NODEFILE", "PBS_ENVIRONMENT", "SLURM_JOB_ID", "SLURM_NTASKS")
@@ -1074,24 +1594,44 @@ def main():
     login_nodes, compute_nodes, node_inv, scheduler_skipped = _discover_nodes(scope, active_scheduler, args, cfg)
     compute_nodes = [n for n in compute_nodes if n not in set(login_nodes)]
 
-    if args.dry_run:
-        _print_dry_run(scope, active_scheduler, cfg, args, ts,
-                       login_nodes, compute_nodes, scheduler_skipped,
-                       requested_workers, thread_stack_setting)
-        return
-
-    ok_records, error_records = _run_fanout(login_nodes, compute_nodes, args, cfg)
-    login_rows, compute_rows, baselines = _build_rows(ok_records, error_records, args, node_inv, active_scheduler)
-
     rundown_enabled = bool(args.discrepancy_rundown and scope in ("compute", "all"))
-    rundown = _run_discrepancy_rundown(
-        compute_rows, login_rows, rundown_enabled, args, cfg, out_prefix
-    )
 
-    exit_code = _write_outputs(
-        scope, active_scheduler, out_prefix, ts, args,
-        login_nodes, compute_nodes, login_rows, compute_rows,
-        scheduler_skipped, baselines, rundown,
-    )
+    if args.binary:
+        if args.dry_run:
+            _print_dry_run(scope, active_scheduler, cfg, args, ts,
+                           login_nodes, compute_nodes, scheduler_skipped,
+                           requested_workers, thread_stack_setting, mode="binary")
+            return
+        ok_records, error_records = _run_binary_fanout(login_nodes, compute_nodes, args, cfg)
+        login_rows, compute_rows, baselines = _build_binary_rows(
+            ok_records, error_records, args, node_inv, active_scheduler
+        )
+        rundown = _run_binary_discrepancy_rundown(
+            compute_rows, login_rows, rundown_enabled, args, cfg, out_prefix
+        )
+        exit_code = _write_binary_outputs(
+            scope, active_scheduler, out_prefix, ts, args,
+            login_nodes, compute_nodes, login_rows, compute_rows,
+            scheduler_skipped, baselines, rundown,
+        )
+    else:
+        if args.dry_run:
+            _print_dry_run(scope, active_scheduler, cfg, args, ts,
+                           login_nodes, compute_nodes, scheduler_skipped,
+                           requested_workers, thread_stack_setting)
+            return
+        ok_records, error_records = _run_fanout(login_nodes, compute_nodes, args, cfg)
+        login_rows, compute_rows, baselines = _build_rows(
+            ok_records, error_records, args, node_inv, active_scheduler
+        )
+        rundown = _run_discrepancy_rundown(
+            compute_rows, login_rows, rundown_enabled, args, cfg, out_prefix
+        )
+        exit_code = _write_outputs(
+            scope, active_scheduler, out_prefix, ts, args,
+            login_nodes, compute_nodes, login_rows, compute_rows,
+            scheduler_skipped, baselines, rundown,
+        )
+
     if exit_code:
         sys.exit(exit_code)

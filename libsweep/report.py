@@ -201,3 +201,131 @@ def build_rundown_section(
 
     lines.append("")
     return "\n".join(lines) + "\n"
+
+
+def write_binary_node_lists(out_prefix: str, binary: str, compute_rows: List[Dict]) -> Dict[str, str]:
+    tag = sanitize_name(binary)
+    files = {}
+
+    ok = [r for r in compute_rows if r.get("binary_query") == binary and r.get("result") != "unreachable"]
+    err = [r for r in compute_rows if r.get("binary_query") == binary and r.get("result") == "unreachable"]
+
+    inconsistent = sorted({r["node"] for r in ok if r.get("result") == "inconsistent"})
+    missing = sorted({r["node"] for r in ok if r.get("result") == "missing"})
+
+    fn = f"{out_prefix}_binary_{tag}_inconsistent.txt"
+    with open(fn, "w", encoding="utf-8") as f:
+        f.write("\n".join(inconsistent) + ("\n" if inconsistent else ""))
+    files["inconsistent"] = fn
+
+    fn = f"{out_prefix}_binary_{tag}_missing.txt"
+    with open(fn, "w", encoding="utf-8") as f:
+        f.write("\n".join(missing) + ("\n" if missing else ""))
+    files["missing"] = fn
+
+    by_kind = defaultdict(list)
+    for r in err:
+        by_kind[r.get("error_kind", "ssh_error")].append(r["node"])
+
+    for kind, nodes in by_kind.items():
+        fn = f"{out_prefix}_binary_{tag}_errors_{sanitize_name(kind)}.txt"
+        with open(fn, "w", encoding="utf-8") as f:
+            nodes = sorted(set(nodes))
+            f.write("\n".join(nodes) + ("\n" if nodes else ""))
+        files[f"errors_{kind}"] = fn
+
+    return files
+
+
+def build_binary_report(
+    ts: str,
+    scope: str,
+    scheduler: str,
+    baseline_from: str,
+    workers: int,
+    retries: int,
+    login_nodes: int,
+    compute_nodes: int,
+    scheduler_skipped_count: int,
+    binaries: List[str],
+    login_rows: List[Dict],
+    compute_rows: List[Dict],
+    baselines: Dict[str, str],
+    node_list_files: Dict[str, Dict[str, str]],
+) -> str:
+    lines = []
+    lines.append(f"Binary sweep report: {ts}")
+    lines.append(f"Scope: {scope}")
+    lines.append(f"Scheduler: {scheduler}")
+    lines.append(f"Workers: {workers}   Retries: {retries}")
+    lines.append(f"Baseline-from: {baseline_from}")
+    lines.append(f"Login nodes: {login_nodes}   Compute nodes selected: {compute_nodes}")
+    lines.append(f"Scheduler skipped (down/offline/non-compute): {scheduler_skipped_count}")
+    lines.append("")
+
+    for binary in binaries:
+        lines.append(f"=== {binary} ===")
+        l_ok = [r for r in login_rows if r.get("binary_query") == binary and r.get("result") == "observed"]
+        c_ok = [r for r in compute_rows if r.get("binary_query") == binary and r.get("result") != "unreachable"]
+        c_err = [r for r in compute_rows if r.get("binary_query") == binary and r.get("result") == "unreachable"]
+
+        baseline = baselines.get(binary, "")
+        lines.append(f"Required version: {baseline if baseline else '(any)'}")
+
+        if l_ok:
+            paths = Counter(r.get("path", "") for r in l_ok if r.get("path"))
+            vers = Counter(r.get("version_string", "") for r in l_ok if r.get("version_string"))
+            lines.append(f"Login consensus path: {paths.most_common(1)[0][0] if paths else '(none)'}")
+            lines.append("Login version counts: " + ", ".join(f"{k}:{v}" for k, v in vers.most_common(6)))
+        else:
+            lines.append("Login: (no data or login scope disabled)")
+
+        lines.append("")
+
+        consistent = [r for r in c_ok if r.get("result") == "consistent"]
+        inconsistent = [r for r in c_ok if r.get("result") == "inconsistent"]
+        missing = [r for r in c_ok if r.get("result") == "missing"]
+
+        lines.append(f"Compute OK: {len(c_ok)}   Compute errors: {len(c_err)}")
+        lines.append(
+            f"  consistent: {len(consistent)}   inconsistent: {len(inconsistent)}   "
+            f"missing: {len(missing)}   unreachable: {len(c_err)}"
+        )
+
+        by_type: Dict[str, Dict[str, int]] = {}
+        for r in c_ok + c_err:
+            nt = (r.get("node_type") or "compute").strip() or "compute"
+            if nt not in by_type:
+                by_type[nt] = {"consistent": 0, "inconsistent": 0, "missing": 0, "unreachable": 0}
+            res = r.get("result", "")
+            if res in by_type[nt]:
+                by_type[nt][res] += 1
+        if by_type:
+            lines.append("  By node_type:")
+            for nt in sorted(by_type.keys()):
+                c = by_type[nt]
+                lines.append(
+                    f"    {nt}: consistent={c['consistent']} inconsistent={c['inconsistent']} "
+                    f"missing={c['missing']} unreachable={c['unreachable']}"
+                )
+
+        if inconsistent:
+            by_ver = Counter(r.get("version_string", "") for r in inconsistent)
+            lines.append("  Top inconsistent version_strings:")
+            for k, v in by_ver.most_common(6):
+                lines.append(f"    {v:>4} : {k or '(unknown)'}")
+
+        if c_err:
+            by_kind = Counter(r.get("error_kind", "ssh_error") for r in c_err)
+            lines.append("  Errors by error_kind: " + ", ".join(f"{k}:{v}" for k, v in by_kind.most_common()))
+            lines.append(f"  Error sample: {sample([r['node'] for r in c_err])}")
+
+        fdict = node_list_files.get(binary, {})
+        if fdict:
+            lines.append("  Node lists:")
+            for k, fn in sorted(fdict.items()):
+                lines.append(f"    {k}: {os.path.basename(fn)}")
+
+        lines.append("")
+
+    return "\n".join(lines) + "\n"

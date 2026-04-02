@@ -259,3 +259,98 @@ def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict
         "versions": sorted(versions),
         "variants_count": len(candidates),
     }
+
+
+# ---------------------------------------------------------------------------
+# Binary probe functions
+# ---------------------------------------------------------------------------
+
+def _find_binary(name, extra_dirs):
+    """Find executable `name` in extra_dirs then PATH. Returns resolved path or empty string."""
+    search_dirs = list(extra_dirs or [])
+    path_env = os.environ.get("PATH", "")
+    for d in path_env.split(os.pathsep):
+        if d and d not in search_dirs:
+            search_dirs.append(d)
+    for d in search_dirs:
+        candidate = os.path.join(d, name)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return os.path.realpath(candidate)
+    return ""
+
+
+def _get_version_string(path, timeout=3):
+    """Run `path --version`, return (first_line, returncode). Returns ('', -2) on timeout."""
+    if not path:
+        return ("", -1)
+    try:
+        p = subprocess.run(
+            [path, "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+        combined = ((p.stdout or "") + (p.stderr or "")).strip()
+        lines = combined.splitlines()
+        first_line = lines[0][:256] if lines else ""
+        return (first_line, p.returncode)
+    except subprocess.TimeoutExpired:
+        return ("", -2)
+    except (OSError, ValueError):
+        return ("", -1)
+
+
+def probe_binary(binary_query, extra_dirs):
+    """Probe a single named binary: find it, get its version string."""
+    name = os.path.basename(binary_query.strip()) or binary_query.strip()
+    path = _find_binary(name, list(extra_dirs or []))
+    if path:
+        version_string, version_rc = _get_version_string(path)
+    else:
+        version_string, version_rc = ("", -1)
+    return {
+        "node": os.uname().nodename.split(".", 1)[0],
+        "query": binary_query,
+        "present": bool(path),
+        "path": path,
+        "version_string": version_string,
+        "version_rc": version_rc,
+    }
+
+
+def probe_binary_rundown(extra_dirs):
+    """Collect presence and path of all executables in PATH + extra_dirs (no --version)."""
+    search_dirs = []
+    seen_dirs = set()
+    for d in (os.environ.get("PATH", "")).split(os.pathsep):
+        if d and d not in seen_dirs:
+            seen_dirs.add(d)
+            search_dirs.append(d)
+    for d in (extra_dirs or []):
+        if d and d not in seen_dirs:
+            seen_dirs.add(d)
+            search_dirs.append(d)
+
+    manifest = {}
+    for d in search_dirs:
+        if not os.path.isdir(d):
+            continue
+        try:
+            entries = os.listdir(d)
+        except OSError:
+            continue
+        for name in sorted(entries):
+            if name in manifest:
+                continue
+            full = os.path.join(d, name)
+            if not os.path.isfile(full) or not os.access(full, os.X_OK):
+                continue
+            manifest[name] = {"path": os.path.realpath(full)}
+
+    return {
+        "node": os.uname().nodename.split(".", 1)[0],
+        "manifest": manifest,
+        "manifest_binary_count": len(manifest),
+    }
