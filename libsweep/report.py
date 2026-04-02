@@ -154,6 +154,15 @@ def build_report(
     return "\n".join(lines) + "\n"
 
 
+_RUNDOWN_KIND_LABELS = {
+    "missing_on_node": "missing on compute node",
+    "majors_diff":     "SONAME majors differ",
+    "versions_diff":   "version strings differ",
+    "extra_on_node":   "extra on compute node (not on reference)",
+    "path_diff":       "path differs",
+}
+
+
 def build_rundown_section(
     *,
     enabled: bool,
@@ -169,35 +178,71 @@ def build_rundown_section(
         return ""
 
     lines: List[str] = []
-    lines.append("=== discrepancy_rundown ===")
+    lines.append("=== discrepancy rundown ===")
+
     if not triggered:
-        lines.append("Status: enabled but not triggered (no inconsistent/missing rows)")
+        lines.append("All nodes consistent — no discrepancy rundown needed.")
         if nodes_txt:
             lines.append(f"Nodes file: {os.path.basename(nodes_txt)}")
         lines.append("")
         return "\n".join(lines) + "\n"
 
-    lines.append("Status: triggered")
-    lines.append(f"Reference node: {reference_node or '(none)'} ({reference_role or 'n/a'})")
+    lines.append("Discrepancies detected — ran full manifest comparison to identify scope.")
 
-    scanned = [r for r in scanned_nodes if r.get("status") == "scanned"]
+    ref_label = f"{reference_node} ({reference_role})" if reference_node else "(none)"
+    bad_node = next(
+        (r.get("node", "") for r in scanned_nodes
+         if r.get("role") == "compute" and r.get("status") == "scanned"),
+        "",
+    )
+    lines.append(f"Reference: {ref_label}   Compared node: {bad_node or '(unknown)'}")
+
     errors = [r for r in scanned_nodes if r.get("status") == "error"]
-    lines.append(f"Scanned nodes: {len(scanned)}   Scan errors: {len(errors)}")
+    if errors:
+        lines.append("Scan errors: " + sample([str(r.get("node", "")) for r in errors if r.get("node")]))
+
+    lines.append("")
 
     if discrepancy_rows:
-        by_kind = Counter(r.get("discrepancy_kind", "unknown") for r in discrepancy_rows)
-        lines.append(f"Discrepancies found: {len(discrepancy_rows)}")
-        lines.append("By kind: " + ", ".join(f"{k}:{v}" for k, v in by_kind.most_common()))
-    else:
-        lines.append("Discrepancies found: 0")
+        is_binary = any("binary_name" in r for r in discrepancy_rows)
+        name_key = "binary_name" if is_binary else "lib_root"
+        section_label = "Binaries" if is_binary else "Libraries"
 
+        # Group by name, keeping first row per name for detail fields
+        by_name: Dict[str, List[str]] = {}
+        detail_by_name: Dict[str, Dict] = {}
+        for r in discrepancy_rows:
+            n = r.get(name_key, "")
+            kind = r.get("discrepancy_kind", "unknown")
+            if n not in by_name:
+                by_name[n] = []
+                detail_by_name[n] = r
+            if kind not in by_name[n]:
+                by_name[n].append(kind)
+
+        lines.append(f"{section_label} differing from reference: {len(by_name)}")
+        for name in sorted(by_name.keys()):
+            kinds = by_name[name]
+            r = detail_by_name[name]
+            desc = ", ".join(_RUNDOWN_KIND_LABELS.get(k, k) for k in kinds)
+            detail = ""
+            if "majors_diff" in kinds:
+                ref_m = r.get("reference_majors", "") or "(none)"
+                node_m = r.get("node_majors", "") or "(none)"
+                detail = f"  [ref: {ref_m}]  [node: {node_m}]"
+            elif "path_diff" in kinds:
+                ref_p = r.get("reference_path", "") or "(none)"
+                node_p = r.get("node_path", "") or "(none)"
+                detail = f"  [ref: {ref_p}]  [node: {node_p}]"
+            lines.append(f"  {name:<34} {desc}{detail}")
+    else:
+        lines.append("No manifest differences found between reference and compared node.")
+
+    lines.append("")
     if discrepancy_csv:
-        lines.append(f"Discrepancy CSV: {os.path.basename(discrepancy_csv)}")
+        lines.append(f"Full details: {os.path.basename(discrepancy_csv)}")
     if nodes_txt:
         lines.append(f"Nodes file: {os.path.basename(nodes_txt)}")
-
-    if errors:
-        lines.append("Scan error sample: " + sample([str(r.get("node", "")) for r in errors if r.get("node")]))
 
     lines.append("")
     return "\n".join(lines) + "\n"
