@@ -31,21 +31,34 @@ from .report import (
 )
 
 
-EXAMPLES = """Examples:
+EXAMPLES = """Library sweep examples:
   Inventory only (no compatibility judgement):
-    ./libsweep --lib libjpeg --scope all --login-auto --baseline-from none --workers 32
+    libsweep --lib libjpeg --scope all --login-auto --baseline-from none --workers 32
 
   Sweep all and require SONAME major 62:
-    ./libsweep --lib libjpeg.so.62 --scope all --login-auto --baseline-from login-consensus --workers 32
+    libsweep --lib libjpeg.so.62 --scope all --login-auto --baseline-from login-consensus --workers 32
 
   Force baseline major 62:
-    ./libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --workers 32
+    libsweep --lib libjpeg --scope all --login-auto --baseline-major 62 --workers 32
 
-  Slurm inventory:
-    ./libsweep --scheduler slurm --lib libjpeg --scope compute --workers 32
+  Multiple libraries, with discrepancy rundown:
+    libsweep --lib libjpeg --lib libpng --scope all --login-auto --discrepancy-rundown --workers 32
+
+  Slurm compute-only inventory:
+    libsweep --scheduler slurm --lib libjpeg --scope compute --workers 32
+
+Binary sweep examples:
+  Check python3 and mpirun are consistent across all compute nodes:
+    libsweep --binary python3 --binary mpirun --scope all --login-auto --workers 32
+
+  Binary inventory only (no version baseline):
+    libsweep --binary python3 --scope all --login-auto --baseline-from none --workers 32
+
+  Binary sweep with discrepancy rundown (full PATH manifest diff):
+    libsweep --binary python3 --scope all --login-auto --discrepancy-rundown --workers 32
 
   Print this examples menu:
-    ./libsweep --examples
+    libsweep --examples
 """
 
 MAX_WORKERS = 128
@@ -398,69 +411,87 @@ def compare_binary_rundown_manifests(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
-        description="Cluster library inventory and compatibility sweep",
+        description="Cluster library and binary inventory and compatibility sweep",
         epilog=EXAMPLES,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     ap.add_argument("--examples", action="store_true", help="Show usage examples and exit")
 
+    # Library sweep
     ap.add_argument("--lib", action="append", required=False,
-                    help="Repeatable. Examples: libjpeg OR jpeg OR libjpeg.so.62")
-    ap.add_argument("--dirs", action="append", default=[], help="Extra directory globs")
-    ap.add_argument("--no-ldconfig", action="store_true", help="Skip ldconfig -p")
+                    help="Repeatable library query. Examples: libjpeg  libjpeg.so.62  (mutually exclusive with --binary)")
+    ap.add_argument("--dirs", action="append", default=[], help="Extra directory globs to scan for libraries")
+    ap.add_argument("--no-ldconfig", action="store_true", help="Skip ldconfig -p lookup")
+
+    # Binary sweep
+    ap.add_argument("--binary", action="append", default=[],
+                    help="Repeatable binary name to locate. Examples: python3  mpirun  (mutually exclusive with --lib)")
+    ap.add_argument("--binary-dirs", action="append", default=[],
+                    help="Extra directories to search for binaries (supplements PATH)")
 
     ap.add_argument("--scope", choices=["login", "compute", "all"], default=None,
-                    help="Default: all (or compute if inside a scheduler job)")
-    ap.add_argument("--scheduler", choices=["auto", "pbs", "slurm"], default="auto")
+                    help="Nodes to probe. Default: all (or compute when running inside a scheduler job)")
+    ap.add_argument("--scheduler", choices=["auto", "pbs", "slurm"], default="auto",
+                    help="Scheduler inventory backend (default: auto-detect)")
     ap.add_argument("--login-auto", action="store_true",
                     help="Auto-discover login nodes by prefixNN pattern via SSH")
-    ap.add_argument("--login-prefix", default=None)
-    ap.add_argument("--login-width", type=int, default=None)
-    ap.add_argument("--login-max", type=int, default=50)
-    ap.add_argument("--login-stop-after-gap", type=int, default=6)
+    ap.add_argument("--login-prefix", default=None, help="Override inferred login node hostname prefix")
+    ap.add_argument("--login-width", type=int, default=None, help="Override numeric suffix width for login node discovery")
+    ap.add_argument("--login-max", type=int, default=50, help="Max login hosts to probe (default: 50)")
+    ap.add_argument("--login-stop-after-gap", type=int, default=6,
+                    help="Stop login discovery after this many consecutive misses (default: 6)")
 
-    add_bool_option(ap, "--pbs-online-only", True)
-    add_bool_option(ap, "--pbs-compute-flag-only", True)
+    add_bool_option(ap, "--pbs-online-only", True,
+                    "Include only online PBS nodes (default: enabled)")
+    add_bool_option(ap, "--pbs-compute-flag-only", True,
+                    "Exclude transfer-class nodes while keeping other online classes (default: enabled)")
 
     ap.add_argument("--baseline-from",
                     choices=["login-consensus", "login-union", "login-intersection", "none"],
-                    default="login-consensus")
-    ap.add_argument("--baseline-major", type=int, default=None)
+                    default="login-consensus",
+                    help="How to derive the baseline from login node data (default: login-consensus)")
+    ap.add_argument("--baseline-major", type=int, default=None,
+                    help="Hard override for required SONAME major version (library sweep only)")
 
-    ap.add_argument("--remote-python", default="python3")
-    ap.add_argument("--workers", type=int, default=32)
-    ap.add_argument("--ssh-timeout", type=int, default=120)
-    ap.add_argument("--retries", type=int, default=2)
-    ap.add_argument("--discrepancy-rundown-workers", type=int, default=8)
+    ap.add_argument("--remote-python", default="python3",
+                    help="Remote Python interpreter to use (default: python3)")
+    ap.add_argument("--workers", type=int, default=32,
+                    help="Parallel SSH fanout workers (default: 32, max: 128)")
+    ap.add_argument("--ssh-timeout", type=int, default=120,
+                    help="Per-node SSH timeout in seconds (default: 120)")
+    ap.add_argument("--retries", type=int, default=2,
+                    help="Retry count for transient SSH failures (default: 2)")
+    ap.add_argument("--discrepancy-rundown-workers", type=int, default=8,
+                    help="Worker pool size for the discrepancy rundown scan (default: 8)")
 
-    ap.add_argument("--ssh-hostkey", choices=["accept-new", "no", "yes"], default="accept-new")
-    ap.add_argument("--ssh-known-hosts", default=None)
+    ap.add_argument("--ssh-hostkey", choices=["accept-new", "no", "yes"], default="accept-new",
+                    help="SSH StrictHostKeyChecking mode (default: accept-new)")
+    ap.add_argument("--ssh-known-hosts", default=None,
+                    help="Override known_hosts file path")
     add_bool_option(ap, "--ssh-control-master", False,
                     "Enable OpenSSH connection reuse (default: disabled)")
     add_bool_option(ap, "--remote-low-priority", True,
-                    "Run remote probe with low CPU priority via nice (default: enabled)")
+                    "Run remote probes with low CPU priority via nice -n 19 (default: enabled)")
 
-    ap.add_argument("--out-prefix", default="lib_sweep")
-    ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--write-node-lists", action="store_true")
+    ap.add_argument("--out-prefix", default="lib_sweep",
+                    help="Output filename prefix (default: lib_sweep)")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Show sweep plan and example probe command; do not run SSH probes")
+    ap.add_argument("--write-node-lists", action="store_true",
+                    help="Write per-library/binary inconsistent/missing/error node list files")
     ap.add_argument("--detail", choices=["concise", "full"], default="concise",
                     help="CSV/report detail level (default: concise)")
-    ap.add_argument("--write-json-summary", action="store_true", help="Write JSON summary report")
+    ap.add_argument("--write-json-summary", action="store_true",
+                    help="Write a compact JSON summary report")
     add_bool_option(ap, "--discrepancy-rundown", False,
-                    "When inconsistency/missing is detected, compare full library manifests "
-                    "on representative flagged nodes against a reference node.")
+                    "When inconsistency/missing is detected, SSH to one bad node and one "
+                    "reference node, diff their full manifests, and write a discrepancy report.")
 
-    ap.add_argument("--probe", action="store_true")
-    ap.add_argument("--probe-rundown", action="store_true")
-
-    # Binary locator
-    ap.add_argument("--binary", action="append", default=[],
-                    help="Repeatable. Binary name to locate (e.g. python3, mpirun)")
-    ap.add_argument("--binary-dirs", action="append", default=[],
-                    help="Extra directories to search for binaries (supplements PATH)")
-    ap.add_argument("--probe-binary", action="store_true")
-    ap.add_argument("--probe-binary-rundown", action="store_true")
+    ap.add_argument("--probe", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--probe-rundown", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--probe-binary", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--probe-binary-rundown", action="store_true", help=argparse.SUPPRESS)
 
     return ap
 
