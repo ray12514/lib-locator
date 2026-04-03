@@ -961,22 +961,59 @@ def _run_discrepancy_rundown(
                     "note": f"{res.get('kind', 'error')}: {res.get('detail', '')}",
                 })
 
-    # Diff the one bad node's manifest against the reference
+    # Diff a flagged node's manifest against the reference.
+    # Use flagged_nodes[0] (bad_node) if its probe succeeded; otherwise fall
+    # through the list and probe remaining candidates sequentially until one
+    # succeeds.
     ref_short = short_hostname(ref_node)
     ref_manifest = manifest_by_node.get(ref_short)
     if isinstance(ref_manifest, dict) and ref_manifest:
-        if bad_node != ref_short:
-            node_manifest = manifest_by_node.get(bad_node)
-            if isinstance(node_manifest, dict) and node_manifest:
-                result["rows"].extend(
-                    compare_rundown_manifests(
-                        reference_node=ref_short,
-                        reference_manifest=ref_manifest,
-                        node=bad_node,
-                        node_manifest=node_manifest,
-                        trigger=trigger,
-                    )
+        node_manifest = None
+        actual_bad_node = None
+        for candidate in flagged_nodes:
+            cshort = short_hostname(candidate)
+            if cshort == ref_short:
+                continue
+            m = manifest_by_node.get(cshort)
+            if isinstance(m, dict) and m:
+                node_manifest = m
+                actual_bad_node = cshort
+                break
+            # bad_node was already attempted in the initial fan-out; don't retry it
+            if candidate == bad_node:
+                continue
+            res = probe_full_manifest(candidate, "compute")
+            result["nodes"].append({
+                "node": cshort, "role": "compute",
+                "status": "scanned" if res.get("status") == "ok" else "error",
+                "note": (
+                    "fallback manifest_lib_count={}".format(len(res["manifest"]))
+                    if res.get("status") == "ok"
+                    else "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", ""))
+                ),
+            })
+            if res.get("status") == "ok":
+                manifest_by_node[cshort] = res["manifest"]
+                node_manifest = res["manifest"]
+                actual_bad_node = cshort
+                break
+
+        if node_manifest is not None:
+            actual_trigger = next(
+                (r for r in compute_rows
+                 if short_hostname(str(r.get("node", ""))) == actual_bad_node
+                 and r.get("result") in ("inconsistent", "missing")),
+                trigger,
+            )
+            result["rows"].extend(
+                compare_rundown_manifests(
+                    reference_node=ref_short,
+                    reference_manifest=ref_manifest,
+                    node=actual_bad_node,
+                    node_manifest=node_manifest,
+                    trigger=actual_trigger,
                 )
+            )
     else:
         result["nodes"].append({
             "node": ref_short, "role": ref_role, "status": "error",
@@ -1436,18 +1473,52 @@ def _run_binary_discrepancy_rundown(
     ref_short = short_hostname(ref_node)
     ref_manifest = manifest_by_node.get(ref_short)
     if isinstance(ref_manifest, dict) and ref_manifest:
-        if bad_node != ref_short:
-            node_manifest = manifest_by_node.get(bad_node)
-            if isinstance(node_manifest, dict) and node_manifest:
-                result["rows"].extend(
-                    compare_binary_rundown_manifests(
-                        reference_node=ref_short,
-                        reference_manifest=ref_manifest,
-                        node=bad_node,
-                        node_manifest=node_manifest,
-                        trigger=trigger,
-                    )
+        node_manifest = None
+        actual_bad_node = None
+        for candidate in flagged:
+            cshort = short_hostname(candidate)
+            if cshort == ref_short:
+                continue
+            m = manifest_by_node.get(cshort)
+            if isinstance(m, dict) and m:
+                node_manifest = m
+                actual_bad_node = cshort
+                break
+            # bad_node was already attempted in the initial fan-out; don't retry it
+            if candidate == bad_node:
+                continue
+            res = probe_full_binary_manifest(candidate, "compute")
+            result["nodes"].append({
+                "node": cshort, "role": "compute",
+                "status": "scanned" if res.get("status") == "ok" else "error",
+                "note": (
+                    "fallback manifest_binary_count={}".format(len(res["manifest"]))
+                    if res.get("status") == "ok"
+                    else "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", ""))
+                ),
+            })
+            if res.get("status") == "ok":
+                manifest_by_node[cshort] = res["manifest"]
+                node_manifest = res["manifest"]
+                actual_bad_node = cshort
+                break
+
+        if node_manifest is not None:
+            actual_trigger = next(
+                (r for r in compute_rows
+                 if short_hostname(str(r.get("node", ""))) == actual_bad_node
+                 and r.get("result") in ("inconsistent", "missing")),
+                trigger,
+            )
+            result["rows"].extend(
+                compare_binary_rundown_manifests(
+                    reference_node=ref_short,
+                    reference_manifest=ref_manifest,
+                    node=actual_bad_node,
+                    node_manifest=node_manifest,
+                    trigger=actual_trigger,
                 )
+            )
     else:
         result["nodes"].append({
             "node": ref_short, "role": ref_role, "status": "error",
