@@ -83,11 +83,14 @@ def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
             pairs.append(key)
         return pairs
 
+    expanded_dirs: List[str] = []
+
     def fs_paths_all() -> List[Tuple[str, str]]:
         pairs: List[Tuple[str, str]] = []
         seen = set()
         for dglob in dirs:
             for base in glob.glob(dglob):
+                expanded_dirs.append(base)
                 patterns = [
                     os.path.join(base.rstrip("/"), "lib*.so*"),
                     os.path.join(base.rstrip("/"), "*", "lib*.so*"),
@@ -104,10 +107,17 @@ def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
                         pairs.append(key)
         return pairs
 
+    ldconfig_pairs = ldconfig_paths_all()
+    fs_pairs = fs_paths_all()
+
+    ldconfig_roots = {root for root, _ in ldconfig_pairs}
+    fs_roots = {root for root, _ in fs_pairs}
+    fs_only_count = len(fs_roots - ldconfig_roots)
+
     by_root: Dict[str, Dict[str, object]] = {}
     seen_pairs = set()
 
-    for root, path in ldconfig_paths_all() + fs_paths_all():
+    for root, path in ldconfig_pairs + fs_pairs:
         if (root, path) in seen_pairs:
             continue
         seen_pairs.add((root, path))
@@ -152,6 +162,9 @@ def probe_rundown(extra_dirs: List[str], no_ldconfig: bool) -> Dict:
         "node": os.uname().nodename.split(".", 1)[0],
         "manifest": out,
         "manifest_lib_count": len(out),
+        "ldconfig_lib_count": len(ldconfig_roots),
+        "fs_lib_count": fs_only_count,
+        "scanned_dirs": sorted(set(expanded_dirs)),
     }
 
 def probe_node(lib_query: str, extra_dirs: List[str], no_ldconfig: bool) -> Dict:

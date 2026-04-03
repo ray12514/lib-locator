@@ -140,13 +140,7 @@ class TestCliHelpers(unittest.TestCase):
             "liba": {"majors": [1], "versions": ["1.1"], "variants_count": 1},
             "libc": {"majors": [3], "versions": ["3.0"], "variants_count": 1},
         }
-        trigger = {
-            "lib_query": "libz",
-            "result": "inconsistent",
-            "found_majors": "1",
-            "missing_required_majors": "2",
-        }
-        rows = compare_rundown_manifests("login01", reference, "c2", node_manifest, trigger)
+        rows = compare_rundown_manifests("login01", reference, "c2", node_manifest)
         kinds = {(r["lib_root"], r["discrepancy_kind"]) for r in rows}
         self.assertIn(("liba", "versions_diff"), kinds)
         self.assertIn(("libb", "missing_on_node"), kinds)

@@ -272,7 +272,6 @@ def _make_rundown_row(
     ref_majors: str, node_majors: str,
     ref_versions: str, node_versions: str,
     ref_variants: str, node_variants: str,
-    trigger: Dict,
 ) -> Dict:
     return {
         "reference_node": reference_node,
@@ -285,17 +284,12 @@ def _make_rundown_row(
         "node_versions": node_versions,
         "reference_variants": ref_variants,
         "node_variants": node_variants,
-        "trigger_lib_query": trigger.get("lib_query", ""),
-        "trigger_result": trigger.get("result", ""),
-        "trigger_found_majors": trigger.get("found_majors", ""),
-        "trigger_missing_required_majors": trigger.get("missing_required_majors", ""),
     }
 
 
 def compare_rundown_manifests(
     reference_node: str, reference_manifest: Dict,
     node: str, node_manifest: Dict,
-    trigger: Dict,
 ) -> List[Dict]:
     rows: List[Dict] = []
     roots = sorted(set(reference_manifest.keys()) | set(node_manifest.keys()))
@@ -314,7 +308,6 @@ def compare_rundown_manifests(
                 node_versions=_str_csv(_str_set(cur_dict.get("versions", []))),
                 ref_variants="0",
                 node_variants=str(cur_dict.get("variants_count", 0)),
-                trigger=trigger,
             ))
             continue
 
@@ -327,7 +320,6 @@ def compare_rundown_manifests(
                 node_versions="",
                 ref_variants=str(ref_dict.get("variants_count", 0)),
                 node_variants="0",
-                trigger=trigger,
             ))
             continue
 
@@ -345,7 +337,6 @@ def compare_rundown_manifests(
                 node_versions=_str_csv(cur_versions),
                 ref_variants=str(ref_dict.get("variants_count", 0)),
                 node_variants=str(cur_dict.get("variants_count", 0)),
-                trigger=trigger,
             ))
             continue
 
@@ -358,7 +349,6 @@ def compare_rundown_manifests(
                 node_versions=_str_csv(cur_versions),
                 ref_variants=str(ref_dict.get("variants_count", 0)),
                 node_variants=str(cur_dict.get("variants_count", 0)),
-                trigger=trigger,
             ))
 
     return rows
@@ -367,17 +357,10 @@ def compare_rundown_manifests(
 def compare_binary_rundown_manifests(
     reference_node: str, reference_manifest: Dict,
     node: str, node_manifest: Dict,
-    trigger: Dict,
 ) -> List[Dict]:
     """Diff two binary manifests {name: {path}} and return discrepancy rows."""
     rows: List[Dict] = []
     names = sorted(set(reference_manifest.keys()) | set(node_manifest.keys()))
-    trigger_fields = {
-        "trigger_binary_query": trigger.get("binary_query", ""),
-        "trigger_result": trigger.get("result", ""),
-        "trigger_version_string": trigger.get("version_string", ""),
-        "trigger_required_version": trigger.get("required_version", ""),
-    }
     for name in names:
         ref = reference_manifest.get(name)
         cur = node_manifest.get(name)
@@ -386,21 +369,18 @@ def compare_binary_rundown_manifests(
                 reference_node=reference_node, node=node, binary_name=name,
                 discrepancy_kind="extra_on_node",
                 reference_path="", node_path=(cur or {}).get("path", ""),
-                **trigger_fields,
             ))
         elif cur is None:
             rows.append(dict(
                 reference_node=reference_node, node=node, binary_name=name,
                 discrepancy_kind="missing_on_node",
                 reference_path=(ref or {}).get("path", ""), node_path="",
-                **trigger_fields,
             ))
         elif ref.get("path") != cur.get("path"):
             rows.append(dict(
                 reference_node=reference_node, node=node, binary_name=name,
                 discrepancy_kind="path_diff",
                 reference_path=ref.get("path", ""), node_path=cur.get("path", ""),
-                **trigger_fields,
             ))
     return rows
 
@@ -927,7 +907,10 @@ def _run_discrepancy_rundown(
                     "detail": "probe-rundown returned no manifest", "manifest": {}}
 
         return {"node": short, "role": role, "status": "ok", "kind": "ok",
-                "detail": "", "manifest": payload.get("manifest", {})}
+                "detail": "", "manifest": payload.get("manifest", {}),
+                "ldconfig_lib_count": payload.get("ldconfig_lib_count"),
+                "fs_lib_count": payload.get("fs_lib_count"),
+                "scanned_dirs": payload.get("scanned_dirs", [])}
 
     # Fan out full-manifest probes
     manifest_by_node: Dict[str, Dict] = {}
@@ -953,8 +936,17 @@ def _run_discrepancy_rundown(
                 manifest_by_node[short] = res["manifest"]
                 result["nodes"].append({
                     "node": short, "role": role, "status": "scanned",
-                    "note": f"manifest_lib_count={len(res['manifest'])}",
+                    "note": "manifest_lib_count={} ldconfig={} fs_only={}".format(
+                        len(res["manifest"]),
+                        res.get("ldconfig_lib_count", "?"),
+                        res.get("fs_lib_count", "?"),
+                    ),
                 })
+                if res.get("scanned_dirs"):
+                    result["nodes"].append({
+                        "node": short, "role": role, "status": "scan_dirs",
+                        "note": ",".join(res["scanned_dirs"]),
+                    })
             else:
                 result["nodes"].append({
                     "node": short, "role": role, "status": "error",
@@ -983,35 +975,37 @@ def _run_discrepancy_rundown(
             if candidate == bad_node:
                 continue
             res = probe_full_manifest(candidate, "compute")
-            result["nodes"].append({
-                "node": cshort, "role": "compute",
-                "status": "scanned" if res.get("status") == "ok" else "error",
-                "note": (
-                    "fallback manifest_lib_count={}".format(len(res["manifest"]))
-                    if res.get("status") == "ok"
-                    else "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", ""))
-                ),
-            })
             if res.get("status") == "ok":
+                result["nodes"].append({
+                    "node": cshort, "role": "compute", "status": "scanned",
+                    "note": "fallback manifest_lib_count={} ldconfig={} fs_only={}".format(
+                        len(res["manifest"]),
+                        res.get("ldconfig_lib_count", "?"),
+                        res.get("fs_lib_count", "?"),
+                    ),
+                })
+                if res.get("scanned_dirs"):
+                    result["nodes"].append({
+                        "node": cshort, "role": "compute", "status": "scan_dirs",
+                        "note": ",".join(res["scanned_dirs"]),
+                    })
                 manifest_by_node[cshort] = res["manifest"]
                 node_manifest = res["manifest"]
                 actual_bad_node = cshort
                 break
+            else:
+                result["nodes"].append({
+                    "node": cshort, "role": "compute", "status": "error",
+                    "note": "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", "")),
+                })
 
         if node_manifest is not None:
-            actual_trigger = next(
-                (r for r in compute_rows
-                 if short_hostname(str(r.get("node", ""))) == actual_bad_node
-                 and r.get("result") in ("inconsistent", "missing")),
-                trigger,
-            )
             result["rows"].extend(
                 compare_rundown_manifests(
                     reference_node=ref_short,
                     reference_manifest=ref_manifest,
                     node=actual_bad_node,
                     node_manifest=node_manifest,
-                    trigger=actual_trigger,
                 )
             )
     else:
@@ -1066,8 +1060,6 @@ def _write_outputs(
                 "reference_majors", "node_majors",
                 "reference_versions", "node_versions",
                 "reference_variants", "node_variants",
-                "trigger_lib_query", "trigger_result",
-                "trigger_found_majors", "trigger_missing_required_majors",
             ]
             write_csv(rundown["csv_path"], rundown_fields, rundown["rows"])
 
@@ -1488,35 +1480,28 @@ def _run_binary_discrepancy_rundown(
             if candidate == bad_node:
                 continue
             res = probe_full_binary_manifest(candidate, "compute")
-            result["nodes"].append({
-                "node": cshort, "role": "compute",
-                "status": "scanned" if res.get("status") == "ok" else "error",
-                "note": (
-                    "fallback manifest_binary_count={}".format(len(res["manifest"]))
-                    if res.get("status") == "ok"
-                    else "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", ""))
-                ),
-            })
             if res.get("status") == "ok":
+                result["nodes"].append({
+                    "node": cshort, "role": "compute", "status": "scanned",
+                    "note": "fallback manifest_binary_count={}".format(len(res["manifest"])),
+                })
                 manifest_by_node[cshort] = res["manifest"]
                 node_manifest = res["manifest"]
                 actual_bad_node = cshort
                 break
+            else:
+                result["nodes"].append({
+                    "node": cshort, "role": "compute", "status": "error",
+                    "note": "fallback {}: {}".format(res.get("kind", "error"), res.get("detail", "")),
+                })
 
         if node_manifest is not None:
-            actual_trigger = next(
-                (r for r in compute_rows
-                 if short_hostname(str(r.get("node", ""))) == actual_bad_node
-                 and r.get("result") in ("inconsistent", "missing")),
-                trigger,
-            )
             result["rows"].extend(
                 compare_binary_rundown_manifests(
                     reference_node=ref_short,
                     reference_manifest=ref_manifest,
                     node=actual_bad_node,
                     node_manifest=node_manifest,
-                    trigger=actual_trigger,
                 )
             )
     else:
@@ -1566,8 +1551,6 @@ def _write_binary_outputs(
             binary_rundown_fields = [
                 "reference_node", "node", "binary_name", "discrepancy_kind",
                 "reference_path", "node_path",
-                "trigger_binary_query", "trigger_result",
-                "trigger_version_string", "trigger_required_version",
             ]
             write_csv(rundown["csv_path"], binary_rundown_fields, rundown["rows"])
 
