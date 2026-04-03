@@ -142,9 +142,11 @@ class TestCliHelpers(unittest.TestCase):
         }
         rows = compare_rundown_manifests("login01", reference, "c2", node_manifest)
         kinds = {(r["lib_root"], r["discrepancy_kind"]) for r in rows}
+        # Only libraries present on both nodes are compared
         self.assertIn(("liba", "versions_diff"), kinds)
-        self.assertIn(("libb", "missing_on_node"), kinds)
-        self.assertIn(("libc", "extra_on_node"), kinds)
+        self.assertNotIn(("libb", "missing_on_node"), kinds)
+        self.assertNotIn(("libc", "extra_on_node"), kinds)
+        self.assertEqual(len(rows), 1)
 
 
 if __name__ == "__main__":

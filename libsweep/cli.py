@@ -292,36 +292,14 @@ def compare_rundown_manifests(
     node: str, node_manifest: Dict,
 ) -> List[Dict]:
     rows: List[Dict] = []
-    roots = sorted(set(reference_manifest.keys()) | set(node_manifest.keys()))
+    # Only compare libraries present on both nodes — missing/extra are expected
+    # when the reference (login) has broader software access than the compute node.
+    roots = sorted(set(reference_manifest.keys()) & set(node_manifest.keys()))
     for root in roots:
         ref = reference_manifest.get(root)
         cur = node_manifest.get(root)
         ref_dict = ref if isinstance(ref, dict) else {}
         cur_dict = cur if isinstance(cur, dict) else {}
-
-        if ref is None:
-            rows.append(_make_rundown_row(
-                reference_node, node, root, "extra_on_node",
-                ref_majors="",
-                node_majors=_int_csv(_int_set(cur_dict.get("majors", []))),
-                ref_versions="",
-                node_versions=_str_csv(_str_set(cur_dict.get("versions", []))),
-                ref_variants="0",
-                node_variants=str(cur_dict.get("variants_count", 0)),
-            ))
-            continue
-
-        if cur is None:
-            rows.append(_make_rundown_row(
-                reference_node, node, root, "missing_on_node",
-                ref_majors=_int_csv(_int_set(ref_dict.get("majors", []))),
-                node_majors="",
-                ref_versions=_str_csv(_str_set(ref_dict.get("versions", []))),
-                node_versions="",
-                ref_variants=str(ref_dict.get("variants_count", 0)),
-                node_variants="0",
-            ))
-            continue
 
         ref_majors = _int_set(ref_dict.get("majors", []))
         cur_majors = _int_set(cur_dict.get("majors", []))
@@ -360,23 +338,12 @@ def compare_binary_rundown_manifests(
 ) -> List[Dict]:
     """Diff two binary manifests {name: {path}} and return discrepancy rows."""
     rows: List[Dict] = []
-    names = sorted(set(reference_manifest.keys()) | set(node_manifest.keys()))
+    # Only compare binaries present on both nodes.
+    names = sorted(set(reference_manifest.keys()) & set(node_manifest.keys()))
     for name in names:
         ref = reference_manifest.get(name)
         cur = node_manifest.get(name)
-        if ref is None:
-            rows.append(dict(
-                reference_node=reference_node, node=node, binary_name=name,
-                discrepancy_kind="extra_on_node",
-                reference_path="", node_path=(cur or {}).get("path", ""),
-            ))
-        elif cur is None:
-            rows.append(dict(
-                reference_node=reference_node, node=node, binary_name=name,
-                discrepancy_kind="missing_on_node",
-                reference_path=(ref or {}).get("path", ""), node_path="",
-            ))
-        elif ref.get("path") != cur.get("path"):
+        if ref.get("path") != cur.get("path"):
             rows.append(dict(
                 reference_node=reference_node, node=node, binary_name=name,
                 discrepancy_kind="path_diff",
